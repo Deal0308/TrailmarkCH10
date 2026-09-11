@@ -6,27 +6,16 @@
 //
 
 import SwiftUI
-import SwiftData
 
+/// Entry point for the iOS app.
 @main
 struct TrailmarkCH10App: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    /// Keeps shared app state alive for the lifetime of the app scene.
+    @State private var appModel = AppModel()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(appModel: appModel)
         }
-        .modelContainer(sharedModelContainer)
     }
 }
