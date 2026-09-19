@@ -9,7 +9,9 @@ let package = Package(
     // The core package can be shared by the iOS app and the watchOS app.
     platforms: [
         .iOS(.v17),
-        .watchOS(.v10)
+        .watchOS(.v10),
+        // Allows the pure model/store test suite to run from the command line on the development Mac.
+        .macOS(.v14)
     ],
 
     products: [
