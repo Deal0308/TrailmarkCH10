@@ -1,10 +1,14 @@
 # Final Report — “The iOS app, whole”
 
+This document retains the **Course 1 iPhone integration report**. The latest Course 2 integration report is [TrailMark on the wrist](WatchFinalReport.md), covering Wrist Home, Wrist Memo, Live Vitals, Motion, reuse, design, and sampling cost in the same continuous project.
+
 ## App overview
 
-Trailmark connects daily activity, a media journal, recovery information, live workouts, and recorded journeys in one iPhone app. Today shows steps, distance, active energy, and hydration. Field Journal records voice/video memos and imports selected videos. Recovery shows last night's asleep duration, a seven-day energy chart, and a sample workout save action. Workout starts a walking session on Apple Watch and mirrors its live and average heart rate to iPhone. Journeys records a foreground GPS track and unites its route, Health summary, and associated memos in Journey Detail. The same continuous watch target also contains Wrist Home, Voice Memos, and a passive Live Vitals page for the latest saved heart rate plus today’s steps and active energy.
+Trailmark connects daily activity, a media journal, recovery information, live workouts, and recorded journeys in one iPhone app. Today shows steps, distance, active energy, and hydration. Field Journal records voice/video memos and imports selected videos. Recovery shows last night's asleep duration, a seven-day energy chart, and a sample workout save action. Workout starts a walking session on Apple Watch and mirrors its live and average heart rate to iPhone. Journeys records a foreground GPS track and unites its route, Health summary, and associated memos in Journey Detail. The same continuous watch target now contains Wrist Home, Voice Memos, Live Vitals, and Motion. Live Vitals combines saved Health data with heart-rate samples from an explicitly started workout; Motion independently measures wrist movement.
 
-The project is organized using **Model–View–ViewModel (MVVM)**. The implementation described below is present in source. The existing watch scheme and its embedded iPhone companion completed a generic build successfully on **September 19, 2026**, including the continuous Assignment 1, Assignment 2, and Assignment 3 watch features. Xcode emitted only its AppIntents metadata-skip warning because the project has no AppIntents dependency. Automated tests, simulators, and physical-watch runtime were intentionally not used during this review. A paired physical Apple Watch is still required for the live-sensor and wrist-memo demonstrations. Screenshots and demo evidence remain outstanding.
+The project uses **Model–View–ViewModel (MVVM)**. The redesigned watch scheme and iPhone companion passed generic **watchOS device and watchOS Simulator builds** on **September 22, 2026**. Current visual runtime checks remain pending. The earlier four-page watch simulator navigation check without a Health prompt happened before the redesign and does not validate the new interface. No automated tests, new simulator launch, microphone recording/playback check, or physical-watch sensor verification was performed for this visual revision. Submission screenshots and device-demo evidence remain outstanding.
+
+The current presentation uses warm cream iPhone surfaces, evergreen panels, serif section headings, readable numeric metrics, and an original peak-and-trail icon. Dark appearance adapts the palette; the watch uses related colors on black. The reference app's structure and feature responsibilities remain the basis of the continuous build, while this outdoor editorial layout replaces the earlier presentation. Recovery's synthetic write remains explicit under **Sample workout → Save sample to Health**.
 
 ## Feature checklist
 
@@ -16,13 +20,14 @@ The project is organized using **Model–View–ViewModel (MVVM)**. The implemen
 | Field Journal (1.2) | Done in source; device verification pending | Audio/video capture, selected-video import, relative files, metadata, thumbnails, duration, audio waveform/scrubbing, playback, deletion. |
 | Recovery (1.3) | Done in source; integration verification pending | Corrected sleep intervals, seven-date chart, explicit synthetic workout save. Visual verification in Health remains pending. |
 | Live Workout | Done in source; physical-watch verification pending | Apple Watch workout session provides current/average BPM and energy; the iPhone Workout tab starts and mirrors the session. |
-| Watch Live Vitals | Done in source; physical-watch verification pending | The watch observes the latest saved heart rate and today’s cumulative steps/energy through the existing package Health service. The passive page does not activate the sensor. |
+| Watch Live Vitals | Done in source; physical-watch verification pending | Explicit Health opt-in; saved heart rate and cumulative daily steps/energy use the existing Health service. During a workout, the page also receives current BPM and its actual sample time through the existing workout view model. |
+| Watch Motion | Done in source; physical-watch verification pending | Package-owned Core Motion service derives a one-second wrist-movement signal; explicit Start/Stop and foreground/page lifecycle bound sampling. See the Course 2 report. |
 | Journeys (1.4) | Done in source; device verification pending | Start/finish, foreground GPS, filtered fixes, segmented polylines, checkpoint persistence. |
 | Unified Journey Detail | Done in source; device verification pending | Route, tappable memo pins/list, elapsed time, GPS distance, journey-window Health together. |
 | Memo association/geotags | Done in source with availability handling | Stable journey ID and a recent fix captured at recording start. No fix means associated but explicitly unpinned; imported clips have no invented geotag. |
 | Shared package / MVVM | Done in source | Models, platform services, persistence and view models are in TrailMarkCH10Core; app views present state. |
 | Written architecture and limitations | Done | This report and README; Recovery reflection is linked below. |
-| 3–6 real screenshots | **Not done** | Five planned figures below; actual images must be added. |
+| 3–6 real screenshots | **Not done** | Six planned figures below; actual images must be added. |
 | Demo recording, upload, and source hand-in | **Not done** | Source is included; the recording and course upload still need to be completed. |
 
 ## Architecture: Service vs ViewModel vs View
@@ -57,7 +62,7 @@ The earlier names `HealthKitManager` and `RecoveryHealthManager` remain source-c
 
 The app has `App` and `Views/Today`, `Views/Journal`, `Views/Recovery`, `Views/Workout`, and `Views/Journeys` folders. `AppModel` constructs and connects dependencies once and exposes recoverable startup errors. The views render values, show navigation/sheets, and forward user/lifecycle actions to view models. Their only framework imports are SwiftUI and, for the energy chart, Charts, plus the shared package.
 
-The package's iOS-only `Presentation` folder adapts MapKit, camera preview layers, AVKit playback UI, and the system Photos picker into reusable surfaces. These framework bridges render service/model state; they do not acquire routes, query Health, or decide which journey owns a memo. This keeps hardware APIs and framework-specific types out of app views.
+The package's `Presentation` folder contains iOS-only MapKit, camera preview, AVKit player, and Photos-picker bridges, plus the phone/watch `Design/TrailmarkTheme.swift` visual layer. Framework bridges render service/model state; they do not acquire routes, query Health, or decide which journey owns a memo. Shared design components own only colors, typography, and presentation. Watch `Views/Components/WatchDesign.swift` adapts that identity to wrist layouts. `RecoveryViewModel+Presentation.swift` supplies derived sleep and energy values used by iPhone Recovery, keeping those calculations out of the view. Hardware APIs and framework-specific types stay out of app views.
 
 ```text
 App/TrailmarkCH10App → AppModel (construct dependencies)
@@ -69,7 +74,7 @@ Package Presentation adapters (map, camera, player, selected-video picker)
 
 ### Why this helps the watch
 
-The watch target depends on the same package. Foundation models, date calculations, Health services, media persistence, and reusable state orchestration are shared, preventing a second copy of workout state, memo schemas, or query behavior. iPhone camera/Photos/player/map adapters remain guarded for iOS. The watch home uses the shared Today view model and opens a focused workout screen backed by the same `WorkoutViewModel` and `WorkoutMetrics` as iPhone. A separate wrist-memo page uses the same `JournalMedia`, `JournalMediaStore`, and `AudioPlaybackService` as the iPhone journal, with a package-owned watch recorder and view model. Live Vitals shares the exact `ActivityHealthService` instance used by Wrist Home; only the statistics-query extension is watch-specific. See [Wrist home](WatchHomeAssignment.md), [Wrist memo](WatchMemoAssignment.md), and [Live vitals](WatchVitalsAssignment.md). Sharing code does not automatically share the two devices' files.
+The watch target depends on the same package. Foundation models, date calculations, Health services, media persistence, and reusable state orchestration are shared, preventing a second copy of workout state, memo schemas, or query behavior. iPhone camera/Photos/player/map adapters remain guarded for iOS. The watch home uses the shared Today view model and opens a focused workout screen backed by the same `WorkoutViewModel` and `WorkoutMetrics` as iPhone. A separate wrist-memo page uses the same `JournalMedia`, `JournalMediaStore`, and `AudioPlaybackService` as the iPhone journal, with a package-owned watch recorder and view model. Live Vitals shares the exact `ActivityHealthService` instance used by Wrist Home and receives workout heart rate through the same `WorkoutViewModel`; only the statistics-query extension is watch-specific. Motion adds its model, service, and view model in the package, with a focused watch view. See [Wrist home](WatchHomeAssignment.md), [Wrist memo](WatchMemoAssignment.md), [Live vitals](WatchVitalsAssignment.md), and the latest [Course 2 final report](WatchFinalReport.md). Sharing code does not automatically share the two devices' files.
 
 ## How Journey Detail integrates the features
 
@@ -84,7 +89,8 @@ The watch target depends on the same package. Foundation models, date calculatio
 | Permission / condition | Handling |
 | --- | --- |
 | Location | When-in-use request on Start journey; purpose string supplied. Denied/restricted access leaves a useful journey without a route. Reduced accuracy is explained. No Always permission or background location mode is requested. |
-| Health | Reads and writes are separate. Recovery writes only after the explicit sample-save action, requesting workout, energy, distance, and heart-rate sharing. Workout tracking requests its required access when Start is selected. Live Vitals separately requests watch read access to heart rate, steps, and active energy and passively observes saved samples. Read-denial status is intentionally not inferred from empty queries. |
+| Health | Reads and writes are separate. Recovery writes only after the explicit sample-save action, requesting workout, energy, distance, and heart-rate sharing. Workout tracking requests access when Start is selected. Watch launch and opening Vitals never request Health access; **Enable Health** opts into reads on a physical watch. Simulator Health access is disabled with an explanation, and navigation, memos, and Motion remain independent of Health. Vitals combines saved-data queries with the existing active workout’s HR stream. Read-denial status is not inferred from empty queries. |
+| Watch motion | Sampling begins only after Start on the Motion page and stops when the page is left or the app becomes inactive. Unavailable hardware and the simulator show a physical-watch explanation instead of fabricated readings. |
 | Camera and microphone | Requested before recording; failure or unavailable hardware gives an explanation. Voice recording and selected-video import remain alternatives when a usable camera is unavailable. |
 | Photos | The system video picker grants access to the selected item. The app does not request broad library access or write to Photos. Cancelling leaves the journal unchanged; failed item loading shows an error. |
 | No sleep / energy / activity | Explicit unavailable states; Recovery distinguishes missing energy from recorded zero. Sleep excludes awake and in-bed-only records. |
@@ -106,7 +112,7 @@ For the Recovery date-window challenge, see the [full reflection on last night's
 
 ## Screenshots — six figures to supply
 
-**Actual screenshots are not included yet.** No app or simulator was launched for the latest reference-alignment revision. These are the planned figures and captions, not substitute screenshots. Add the real images under `docs/screenshots/` and embed them in this section before submitting. Avoid exposing personal information you do not want in the course submission.
+**Submission screenshots are not included yet.** The limited four-page watch simulator navigation check on September 22, 2026 happened before the current redesign and was not saved as report figures. No screenshots of the new visual revision have been generated. These are the planned figures and captions, not substitute screenshots. Add the real images under `docs/screenshots/` and embed them in this section before submitting. Avoid exposing personal information you do not want in the course submission.
 
 | Figure / proposed filename | Required subject | Caption to use with the actual image |
 | --- | --- | --- |
@@ -121,7 +127,7 @@ If the unified detail content requires two captures, replace a less important ov
 
 ## Known limitations and next steps
 
-- The watch scheme and embedded iPhone companion completed a generic build successfully on September 19. Xcode's AppIntents metadata-skip warning remains because the project has no AppIntents dependency. Tests, simulators, and physical-watch runtime were not used in this review. A build does not verify microphone capture/playback, wrist heart-rate collection, live steps/energy changes, pause/resume timing, reconnect behavior, mirroring, or Health saving; exercise those with a paired physical Apple Watch.
+- Before the current redesign, September 22 watchOS/watchOS Simulator builds and a limited watch navigation check passed. The redesigned watchOS device and watchOS Simulator builds, including the iPhone companion, passed on September 22, 2026. Current visual runtime checks remain pending. Earlier navigation evidence does not validate the redesigned layout, microphone capture/playback, wrist heart rate, daily metric updates, motion sampling, pause/resume timing, reconnect behavior, mirroring, or Health saving. No automated tests or physical-watch runtime checks were performed.
 - Routes are foreground-only. Background time is included in elapsed journey time but contributes no route points; separate segments prevent drawing across the gap. Next: deliberate background-location support with an appropriate permission and battery strategy.
 - Location accuracy and freshness filtering can leave memos without a pin. Imported clips have no inferred geotag. Next: optionally read source video metadata or allow an explicitly labeled manual location.
 - GPS distance can contain noise; the walking-oriented speed/gap thresholds can be unsuitable for cycling or transport. Next: activity-specific filters and better quality indicators.
@@ -130,7 +136,7 @@ If the unified detail content requires two captures, replace a less important ov
 - Sleep uses a documented 6 p.m.–noon window and a union of readable asleep intervals. It is not a personalized sleep-episode detector or Apple's source-priority algorithm.
 - JSON route checkpoints rewrite the stored collection; very long histories need a more scalable store. Media stays local, without cloud backup management, sharing, or phone–watch transfer.
 - Media interruption/device rotation behavior and low-disk conditions need device work. Video capture is limited to two minutes. No offline map download is provided.
-- Wrist Home, Workout, Wrist Memo, and Live Vitals are surfaces in the same watch target and use the same package. Live Vitals reports the latest heart-rate sample saved in HealthKit and its measurement time; opening the passive query does not activate the optical sensor. Physical-watch microphone/audio routing, authorization, sensor behavior, live query updates, and HealthKit mirroring still require device verification. Watch memo files remain in the watch sandbox until a future transfer feature is added.
+- Wrist Home, Wrist Memo, Live Vitals, and Motion are four pages in the same watch target, with Workout accessible from Home. Live Vitals uses saved Health samples outside a workout and the existing workout stream during a session, preserving the actual HR sample time. Opening Vitals does not start a workout or activate the optical sensor. Health is optional for using the app; simulator Health and motion readings are unavailable. Physical-watch microphone/audio routing, authorization, sensor behavior, query updates, and mirroring still require device verification. Watch memo files remain in the watch sandbox until a future transfer feature is added.
 
 ## Demo recording and hand-in
 
@@ -140,4 +146,4 @@ Submit the full Xcode project with its adjacent local package, this report with 
 
 ## Reference-app comparison
 
-The [assignment alignment review](AssignmentAlignment.md) maps the supplied `TrailMarkCH10-main.zip` to this project and every provided rubric. It preserves the current design and completed features while adding the reference’s waveform interaction through the MVVM boundaries. Screenshot, demo and Health verification requirements remain open.
+The [assignment alignment review](AssignmentAlignment.md) maps the supplied `TrailMarkCH10-main.zip` to this project and every provided rubric. Its structural and feature alignment remains, including waveform interaction through MVVM boundaries. The current original visual redesign replaces the earlier styling while retaining those responsibilities. Screenshot, demo and Health verification requirements remain open.

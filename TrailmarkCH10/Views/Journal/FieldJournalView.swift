@@ -5,47 +5,96 @@ struct FieldJournalView: View {
     let viewModel: JournalViewModel
     @State private var showingRecorder = false
     @State private var showingLibrary = false
+
     var body: some View {
         NavigationStack {
             List {
-                if let title = viewModel.activeJourneyTitle {
-                    Section {
-                        Label("Recording for \(title)", systemImage: "location.fill")
-                        Text("New recordings attach to this journey. A recent GPS fix adds their map pins.").font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 22) {
+                    TrailmarkSectionHeader(
+                        eyebrow: "COLLECT THE MOMENTS",
+                        title: "Field journal.",
+                        subtitle: "A voice, a view, a moment worth keeping."
+                    )
+                    captureCard
+                    if let title = viewModel.activeJourneyTitle {
+                        VStack(alignment: .leading, spacing: 10) {
+                            TrailmarkBadge("ON A JOURNEY", systemImage: "location.fill")
+                            Text(title).font(.headline)
+                            DisclosureGroup("How your memos connect") {
+                                Text("New recordings attach to this journey. A recent GPS fix adds their map pins.")
+                                    .font(.footnote).foregroundStyle(.secondary).padding(.top, 6)
+                            }
+                            .font(.subheadline)
+                        }
+                        .trailmarkCard()
+                    }
+                    if let error = viewModel.errorMessage {
+                        VStack(alignment: .leading, spacing: 10) {
+                            TrailmarkNotice(title: "Your journal needs attention", message: error,
+                                            systemImage: "exclamationmark.triangle", tint: TrailmarkTheme.clay)
+                            Button("Dismiss message") { viewModel.clearError() }
+                                .buttonStyle(TrailmarkSecondaryButtonStyle())
+                        }
+                    }
+                    if viewModel.isImporting {
+                        ProgressView("Bringing your video into the journal…")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .trailmarkCard()
+                    }
+                    if viewModel.items.isEmpty {
+                        TrailmarkEmptyState(
+                            title: "Every trail has a story.",
+                            message: "Your saved voice and video memos will live here. Record your first note or bring in a video from Photos.",
+                            systemImage: "book.closed"
+                        )
+                    } else {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("Your collection").font(.title2.weight(.semibold))
+                            Spacer()
+                            Text("\(viewModel.items.count) \(viewModel.items.count == 1 ? "memo" : "memos")")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 4)
                     }
                 }
-                if let error = viewModel.errorMessage {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
-                        Button("Dismiss message") { viewModel.clearError() }
+                .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 12, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+
+                ForEach(viewModel.items) { item in
+                    NavigationLink {
+                        JournalMediaDetailView(viewModel: viewModel.makeDetailViewModel(item: item))
+                    } label: {
+                        JournalMediaRow(item: item, viewModel: viewModel)
                     }
+                    .trailmarkCard(padding: 16)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 }
-                if viewModel.isImporting { ProgressView("Importing video…") }
-                if viewModel.items.isEmpty {
-                    ContentUnavailableView("No Field Memos", systemImage: "book.closed", description: Text("Record a voice or video memo, or import a video from Photos."))
-                } else {
-                    Section("Memos") {
-                        ForEach(viewModel.items) { item in
-                            NavigationLink {
-                                JournalMediaDetailView(viewModel: viewModel.makeDetailViewModel(item: item))
-                            } label: { JournalMediaRow(item: item, viewModel: viewModel) }
-                        }
-                        .onDelete { offsets in
-                            let items = offsets.map { viewModel.items[$0] }
-                            Task { for item in items { _ = await viewModel.delete(item) } }
-                        }
-                    }
+                .onDelete { offsets in
+                    let items = offsets.map { viewModel.items[$0] }
+                    Task { for item in items { _ = await viewModel.delete(item) } }
                 }
             }
-            .navigationTitle("Field Journal")
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .trailmarkScreen()
+            .navigationTitle("Journal")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 Menu {
                     Button("Record a memo", systemImage: "mic.fill") { showingRecorder = true }
                     Button("Import video", systemImage: "photo.on.rectangle") { showingLibrary = true }
-                } label: { Label("Add memo", systemImage: "plus") }
+                } label: {
+                    Image(systemName: "plus").frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel("Add memo")
                 .disabled(viewModel.isImporting)
             }
-            .sheet(isPresented: $showingRecorder) { JournalCaptureView(viewModel: viewModel.makeCaptureViewModel()) }
+            .sheet(isPresented: $showingRecorder) {
+                JournalCaptureView(viewModel: viewModel.makeCaptureViewModel())
+            }
             .sheet(isPresented: $showingLibrary) {
                 VideoLibrarySurface(onPicked: { url in
                     showingLibrary = false
@@ -57,26 +106,76 @@ struct FieldJournalView: View {
             }
         }
     }
+
+    private var captureCard: some View {
+        TrailmarkHero {
+            VStack(alignment: .leading, spacing: 20) {
+                Image(systemName: "mic.fill")
+                    .font(.title2)
+                    .foregroundStyle(TrailmarkTheme.lime)
+                    .accessibilityHidden(true)
+                Text("Keep a little\nof the outside.")
+                    .font(.system(.largeTitle, design: .serif, weight: .medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Capture a voice or video memo wherever the day takes you.")
+                    .font(.subheadline).foregroundStyle(.white.opacity(0.8))
+                Button("Record a memo", systemImage: "record.circle") { showingRecorder = true }
+                    .buttonStyle(TrailmarkPrimaryButtonStyle(tint: TrailmarkTheme.lime, foreground: TrailmarkTheme.forest))
+                    .disabled(viewModel.isImporting)
+                Button("Import from Photos", systemImage: "photo.on.rectangle") { showingLibrary = true }
+                    .buttonStyle(.plain)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .foregroundStyle(.white)
+                    .disabled(viewModel.isImporting)
+            }
+        }
+    }
 }
 
 struct JournalMediaRow: View {
     let item: JournalMedia
     let viewModel: JournalViewModel
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        HStack(spacing: 12) {
-            MemoThumbnailSurface(data: viewModel.thumbnails[item.id], type: item.type)
-                .frame(width: 64, height: 48).background(.quaternary).clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.type == .video ? "Video Memo" : "Voice Memo").font(.headline)
-                Text(item.date, format: .dateTime.month(.abbreviated).day().hour().minute()).font(.caption).foregroundStyle(.secondary)
-                if item.isImported == true { Text("Imported video").font(.caption2).foregroundStyle(.secondary) }
-                if item.journeyID != nil {
-                    Label(item.coordinate == nil ? "Journey · no location" : "Journey · geotagged", systemImage: "mappin").font(.caption2).foregroundStyle(.secondary)
+        HStack(alignment: .center, spacing: 14) {
+            Group {
+                if item.type == .audio {
+                    ZStack {
+                        TrailmarkTheme.accent(for: colorScheme).opacity(0.12)
+                        Image(systemName: "mic.fill")
+                            .font(.title2).foregroundStyle(TrailmarkTheme.accent(for: colorScheme))
+                    }
+                } else {
+                    MemoThumbnailSurface(data: viewModel.thumbnails[item.id], type: item.type)
+                        .background(TrailmarkTheme.sky.opacity(0.16))
                 }
             }
-            Spacer()
-            Text(item.durationText).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+            .frame(width: 64, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.type == .video ? "Video memo" : "Voice memo")
+                    .font(.headline).foregroundStyle(TrailmarkTheme.ink(for: colorScheme))
+                Text(item.date, format: .dateTime.month(.abbreviated).day().hour().minute())
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(item.durationText).monospacedDigit()
+                    if item.isImported == true { Text("· Imported") }
+                }
+                .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                if item.journeyID != nil {
+                    Label(item.coordinate == nil ? "Journey · no location" : "Journey · geotagged", systemImage: "mappin")
+                        .font(.caption2).foregroundStyle(TrailmarkTheme.accent(for: colorScheme))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
         }
+        .frame(minHeight: 72)
+        .accessibilityElement(children: .combine)
         .task { await viewModel.loadThumbnail(for: item) }
     }
 }

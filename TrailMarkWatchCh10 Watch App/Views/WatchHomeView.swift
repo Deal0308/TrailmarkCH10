@@ -1,78 +1,85 @@
 import SwiftUI
 import TrailMarkCH10Core
 
-/// One headline and one action. All loading and HealthKit work stays in the shared package.
+/// One headline and one action; loading and HealthKit remain in the shared package.
 struct WatchHomeView: View {
     let viewModel: TodayViewModel
     let workoutViewModel: WorkoutViewModel
+    let isHealthEnabled: Bool
+    let isSelected: Bool
     @Environment(\.scenePhase) private var scenePhase
-    @ScaledMetric(relativeTo: .largeTitle) private var headlineSize: CGFloat = 42
+    @ScaledMetric(relativeTo: .largeTitle) private var headlineSize: CGFloat = 46
 
     var body: some View {
         NavigationStack {
             ViewThatFits(in: .vertical) {
                 homeContent
-                // Preserve readable text at accessibility sizes; the native scroll view supports the Crown.
                 ScrollView { homeContent }
             }
+            .background(WatchDesign.background)
             .navigationTitle("Trailmark")
-            .task { await viewModel.refreshToday() }
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .active { Task { await viewModel.refreshToday() } }
+            .task(id: isHealthEnabled && isSelected && scenePhase == .active) {
+                if isHealthEnabled, isSelected, scenePhase == .active {
+                    await viewModel.refreshToday()
+                }
             }
         }
+        .preferredColorScheme(.dark)
     }
 
     private var homeContent: some View {
-        VStack(spacing: 8) {
-            VStack(spacing: 2) {
-                Text("TODAY’S STEPS")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(viewModel.stepHeadlineText)
-                    .font(.system(size: headlineSize, weight: .bold, design: .rounded))
+        VStack(spacing: 9) {
+            VStack(spacing: 0) {
+                WatchEyebrow(title: "Today’s steps", color: WatchDesign.accent)
+                Text(isHealthEnabled ? viewModel.stepHeadlineText : "—")
+                    .font(.system(size: headlineSize, weight: .semibold, design: .rounded))
+                    .foregroundStyle(WatchDesign.foreground)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.65)
+                    .minimumScaleFactor(0.6)
                     .contentTransition(.numericText())
             }
             .frame(maxWidth: .infinity)
+            .background {
+                TrailmarkContours()
+                    .stroke(WatchDesign.accent.opacity(0.065), lineWidth: 0.75)
+                    .clipped()
+                    .accessibilityHidden(true)
+                    .allowsHitTesting(false)
+            }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Today’s steps")
-            .accessibilityValue(viewModel.stepAccessibilityValue)
+            .accessibilityValue(isHealthEnabled ? viewModel.stepAccessibilityValue : "Health not enabled")
 
-            Text(viewModel.stepStatusText)
+            Text(isHealthEnabled ? viewModel.stepStatusText : "Health is optional")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WatchDesign.muted)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
             NavigationLink {
                 WatchWorkoutView(viewModel: workoutViewModel)
             } label: {
-                Label(workoutViewModel.metrics.isActive ? "Workout Live" : "Start Workout",
-                      systemImage: "figure.walk")
-                    .frame(maxWidth: .infinity)
+                Label(workoutViewModel.metrics.isActive ? "Workout Live" : "Start Workout", systemImage: "figure.walk")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.green)
+            .buttonStyle(WatchActionStyle())
             .accessibilityHint("Opens the walking workout and heart-rate tracker")
 
-            if let explanation = viewModel.stepExplanation {
+            if isHealthEnabled, let explanation = viewModel.stepExplanation {
                 Text(explanation)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(.caption2)
+                    .foregroundStyle(WatchDesign.muted)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Label("Swipe for Memos & Vitals", systemImage: "chevron.down")
+            Label(isHealthEnabled ? "Memos · Vitals · Motion" : "Enable Health in Vitals", systemImage: "chevron.down")
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .accessibilityLabel("Swipe for Voice Memos and Live Vitals")
+                .foregroundStyle(WatchDesign.muted)
+                .multilineTextAlignment(.center)
+                .accessibilityLabel("Swipe for Voice Memos, Live Vitals, and Motion. Health can be enabled in Vitals.")
         }
         .padding(.horizontal, 8)
-        .padding(.bottom, 6)
+        .padding(.bottom, 8)
     }
-
 }

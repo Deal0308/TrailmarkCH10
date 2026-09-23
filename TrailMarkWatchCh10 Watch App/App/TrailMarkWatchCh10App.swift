@@ -7,21 +7,29 @@ struct TrailMarkWatchCh10_Watch_AppApp: App {
     @WKApplicationDelegateAdaptor(WorkoutLaunchDelegate.self) private var applicationDelegate
     @State private var homeViewModel: TodayViewModel
     @State private var liveVitalsViewModel: LiveVitalsViewModel
-    @State private var workoutViewModel = WorkoutViewModel()
+    @State private var workoutViewModel: WorkoutViewModel
     @State private var memoViewModel = WatchMemoViewModel()
+    @State private var motionViewModel = MotionViewModel()
     @State private var selectedPage: WatchPage = .home
 
     init() {
         // Wrist Home and Live Vitals share one package-owned HealthKit manager.
-        let healthService = ActivityHealthService(scope: .stepsOnly)
+        let healthService = ActivityHealthService(scope: .stepsOnly, requestsAuthorizationOnRead: false)
+        let workout = WorkoutViewModel()
+        _workoutViewModel = State(initialValue: workout)
         _homeViewModel = State(initialValue: TodayViewModel(service: healthService))
-        _liveVitalsViewModel = State(initialValue: LiveVitalsViewModel(service: healthService))
+        _liveVitalsViewModel = State(initialValue: LiveVitalsViewModel(service: healthService, workoutViewModel: workout))
     }
 
     var body: some Scene {
         WindowGroup {
             TabView(selection: $selectedPage) {
-                WatchHomeView(viewModel: homeViewModel, workoutViewModel: workoutViewModel)
+                WatchHomeView(
+                    viewModel: homeViewModel,
+                    workoutViewModel: workoutViewModel,
+                    isHealthEnabled: liveVitalsViewModel.isHealthEnabled,
+                    isSelected: selectedPage == .home
+                )
                     .tag(WatchPage.home)
                 WatchMemoListView(viewModel: memoViewModel)
                     .tag(WatchPage.memos)
@@ -30,6 +38,8 @@ struct TrailMarkWatchCh10_Watch_AppApp: App {
                     isSelected: selectedPage == .liveVitals
                 )
                 .tag(WatchPage.liveVitals)
+                WatchMotionView(viewModel: motionViewModel, isSelected: selectedPage == .motion)
+                    .tag(WatchPage.motion)
             }
             .tabViewStyle(.verticalPage)
         }
@@ -40,4 +50,5 @@ private enum WatchPage: Hashable {
     case home
     case memos
     case liveVitals
+    case motion
 }

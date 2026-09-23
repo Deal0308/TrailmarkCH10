@@ -6,8 +6,10 @@ import Foundation
 public protocol LiveVitalsProviding: AnyObject {
     var onLiveVitals: ((LiveVitalsSnapshot) -> Void)? { get set }
     var onLiveVitalsError: ((String) -> Void)? { get set }
+    var liveVitalsUnavailableReason: String? { get }
 
-    func startLiveVitalsUpdates() async throws
+    func requestLiveVitalsAuthorization() async throws
+    func startLiveVitalsUpdates() throws
     func stopLiveVitalsUpdates()
 }
 #endif

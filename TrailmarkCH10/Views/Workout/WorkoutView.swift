@@ -1,96 +1,183 @@
 import SwiftUI
 import TrailMarkCH10Core
 
-/// Companion workout screen. Apple Watch supplies live sensor data through HealthKit mirroring.
+/// A companion to the wrist workout. Shared state remains authoritative for every metric.
 struct WorkoutView: View {
     let viewModel: WorkoutViewModel
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .largeTitle) private var heartRateSize: CGFloat = 48
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Walking workout").font(.title2.bold())
-                        Text("Heart rate is measured by Apple Watch and mirrored here while the workout runs.")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }
-
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 12) {
-                            metricCard("Heart Rate", value: viewModel.metrics.currentHeartRateText, icon: "heart.fill", tint: .red)
-                            metricCard("Average", value: viewModel.metrics.averageHeartRateText, icon: "waveform.path.ecg", tint: .pink)
-                        }
-                        VStack(spacing: 12) {
-                            metricCard("Heart Rate", value: viewModel.metrics.currentHeartRateText, icon: "heart.fill", tint: .red)
-                            metricCard("Average", value: viewModel.metrics.averageHeartRateText, icon: "waveform.path.ecg", tint: .pink)
-                        }
-                    }
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 12) {
-                            metricCard("Elapsed", value: viewModel.metrics.elapsedText, icon: "timer", tint: .blue)
-                            metricCard("Energy", value: viewModel.metrics.energyText, icon: "flame.fill", tint: .orange)
-                        }
-                        VStack(spacing: 12) {
-                            metricCard("Elapsed", value: viewModel.metrics.elapsedText, icon: "timer", tint: .blue)
-                            metricCard("Energy", value: viewModel.metrics.energyText, icon: "flame.fill", tint: .orange)
-                        }
-                    }
-
-                    Label(viewModel.metrics.statusMessage, systemImage: statusIcon)
-                        .font(.subheadline).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 24) {
+                    TrailmarkSectionHeader(eyebrow: "WALKING WORKOUT", title: "Find your\nwalking rhythm.", subtitle: "Live from your Apple Watch.")
+                    heartRateHero
+                    sessionMetrics
                     if let error = viewModel.errorMessage {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote)
+                        TrailmarkNotice(title: "Your watch needs attention", message: error, systemImage: "applewatch", tint: TrailmarkTheme.clay)
                     }
-                    controls
-                    Text("The iPhone does not estimate BPM. A paired Apple Watch starts the HealthKit workout and provides its real heart-rate samples. The completed workout is saved to Health.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                    DisclosureGroup {
+                        Text("Apple Watch measures your heart rate and shares the workout here. Trailmark shows the latest reported sample with its measurement time; iPhone does not estimate BPM. A finished workout is saved to Apple Health. If the connection drops, the watch keeps control of the session.")
+                            .font(.footnote)
+                            .foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
+                            .padding(.top, 10)
+                    } label: {
+                        Label("Connected to your wrist", systemImage: "applewatch")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .trailmarkCard()
                 }
-                .padding()
+                .padding(.horizontal, 22)
+                .padding(.top, 12)
+                .padding(.bottom, 30)
+                .frame(maxWidth: 720)
+                .frame(maxWidth: .infinity)
             }
-            .background(Color(.systemGroupedBackground))
+            .trailmarkScreen()
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                controls
+                    .padding(.horizontal, 22)
+                    .padding(.top, 12)
+                    .padding(.bottom, 10)
+                    .frame(maxWidth: 720)
+                    .frame(maxWidth: .infinity)
+                    .background(TrailmarkTheme.background(for: scheme))
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(TrailmarkTheme.line(for: scheme)).frame(height: 0.5)
+                    }
+            }
             .navigationTitle("Workout")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 
-    private var controls: some View {
-        HStack {
-            if viewModel.metrics.state == .running || viewModel.metrics.state == .paused {
-                Button(viewModel.metrics.state == .paused ? "Resume" : "Pause",
-                       systemImage: viewModel.metrics.state == .paused ? "play.fill" : "pause.fill") {
-                    viewModel.pauseOrResume()
+    private var heartRateHero: some View {
+        TrailmarkHero {
+            VStack(alignment: .leading, spacing: 24) {
+                ViewThatFits(in: .horizontal) {
+                    HStack { heartRateLabel; Spacer(); stateBadge }
+                    VStack(alignment: .leading, spacing: 12) { heartRateLabel; stateBadge }
                 }
-                .buttonStyle(.bordered)
-                Button("End", systemImage: "stop.fill", role: .destructive) { viewModel.end() }
-                    .buttonStyle(.borderedProminent).tint(.red)
-            } else {
-                Button("Start on Apple Watch", systemImage: "applewatch") {
-                    Task { await viewModel.start() }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(viewModel.metrics.currentHeartRateText)
+                        .font(.system(size: heartRateSize, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .contentTransition(.numericText())
+                    if let date = viewModel.metrics.heartRateSampleDate {
+                        Text("Measured \(date.formatted(date: .omitted, time: .standard))")
+                            .font(.caption).foregroundStyle(TrailmarkTheme.cream)
+                    } else {
+                        Text("Wrist readings appear during your workout.")
+                            .font(.subheadline).foregroundStyle(TrailmarkTheme.cream)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(viewModel.metrics.state == .requestingAuthorization ||
-                          viewModel.metrics.state == .starting || viewModel.metrics.state == .ending)
+                .accessibilityElement(children: .combine)
+                Text(viewModel.metrics.statusMessage)
+                    .font(.footnote)
+                    .foregroundStyle(TrailmarkTheme.cream)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
-    private func metricCard(_ title: String, value: String, icon: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: icon).font(.caption).foregroundStyle(tint)
-            Text(value).font(.title3.bold()).monospacedDigit().fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, minHeight: 90, alignment: .leading)
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-        .accessibilityElement(children: .combine)
+    private var heartRateLabel: some View {
+        Label("HEART RATE", systemImage: "heart")
+            .font(.caption.weight(.semibold))
+            .tracking(1.5)
     }
 
+    private var stateBadge: some View {
+        TrailmarkBadge(stateTitle, systemImage: statusIcon, tint: TrailmarkTheme.lime)
+    }
+
+    private var sessionMetrics: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 14) {
+                Image(systemName: "timer")
+                    .font(.title3)
+                    .foregroundStyle(TrailmarkTheme.accent(for: scheme))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Elapsed time").font(.subheadline)
+                        .foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
+                    Text(viewModel.metrics.elapsedText)
+                        .font(.system(.largeTitle, design: .rounded, weight: .medium))
+                        .monospacedDigit()
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .trailmarkCard()
+            .accessibilityElement(children: .combine)
+            LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize
+                      ? [GridItem(.flexible())]
+                      : [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                TrailmarkMetricTile(title: "Average heart rate", value: viewModel.metrics.averageHeartRateText, systemImage: "waveform.path.ecg", tint: TrailmarkTheme.clay)
+                TrailmarkMetricTile(title: "Workout energy", value: viewModel.metrics.energyText, systemImage: "flame", tint: TrailmarkTheme.gold)
+            }
+        }
+    }
+
+    @ViewBuilder private var controls: some View {
+        if viewModel.metrics.state == .running || viewModel.metrics.state == .paused {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: 10) { activeControls }
+            } else {
+                HStack(spacing: 10) { activeControls }
+            }
+        } else {
+            Button {
+                Task { await viewModel.start() }
+            } label: {
+                if isTransitioning {
+                    HStack {
+                        ProgressView().tint(scheme == .dark ? TrailmarkTheme.forest : .white)
+                        Text(stateTitle)
+                    }
+                } else {
+                    Label(viewModel.metrics.state == .completed ? "Start another walk" : "Start on Apple Watch", systemImage: "applewatch")
+                }
+            }
+            .buttonStyle(TrailmarkPrimaryButtonStyle())
+            .disabled(isTransitioning)
+        }
+    }
+
+    @ViewBuilder private var activeControls: some View {
+        Button(viewModel.metrics.state == .paused ? "Resume" : "Pause",
+               systemImage: viewModel.metrics.state == .paused ? "play.fill" : "pause.fill") {
+            viewModel.pauseOrResume()
+        }
+        .buttonStyle(TrailmarkPrimaryButtonStyle())
+        Button("End workout", systemImage: "stop.fill", role: .destructive) { viewModel.end() }
+            .buttonStyle(TrailmarkSecondaryButtonStyle())
+    }
+
+    private var isTransitioning: Bool {
+        viewModel.metrics.state == .requestingAuthorization || viewModel.metrics.state == .starting || viewModel.metrics.state == .ending
+    }
+    private var stateTitle: String {
+        switch viewModel.metrics.state {
+        case .idle: "Ready"
+        case .requestingAuthorization: "Health access"
+        case .starting: "Connecting"
+        case .running: "In progress"
+        case .paused: "Paused"
+        case .ending: "Finishing"
+        case .completed: "Complete"
+        case .failed: "Unavailable"
+        }
+    }
     private var statusIcon: String {
         switch viewModel.metrics.state {
-        case .running: "heart.circle.fill"
+        case .running: "figure.walk"
         case .paused: "pause.circle"
-        case .completed: "checkmark.circle.fill"
-        case .failed: "exclamationmark.triangle.fill"
+        case .completed: "checkmark.circle"
+        case .failed: "exclamationmark.circle"
         default: "applewatch"
         }
     }

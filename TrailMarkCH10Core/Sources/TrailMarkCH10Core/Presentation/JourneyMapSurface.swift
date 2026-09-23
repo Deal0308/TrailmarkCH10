@@ -9,28 +9,32 @@ public struct JourneyMapSurface: View {
     private let memos: [JournalMedia]
     private let onSelectMemo: (JournalMedia) -> Void
     @State private var position: MapCameraPosition = .automatic
+    @Environment(\.colorScheme) private var scheme
     public init(journey: Journey, memos: [JournalMedia], onSelectMemo: @escaping (JournalMedia) -> Void) {
         self.journey = journey; self.memos = memos; self.onSelectMemo = onSelectMemo
     }
     public var body: some View {
         if journey.points.isEmpty && memos.allSatisfy({ $0.coordinate == nil }) {
-            ContentUnavailableView("No Route Yet", systemImage: "map", description: Text("A route appears after accurate location updates. Health and memos remain available without a route."))
+            ScrollView {
+                TrailmarkEmptyState(title: "The route begins here", message: "Your route appears with accurate location updates. Memos and Health stay available along the way.", systemImage: "map")
+            }
+            .trailmarkScreen()
         } else {
             Map(position: $position) {
                 ForEach(segments) { segment in
                     if segment.points.count > 1 {
                         MapPolyline(coordinates: segment.points.map(\.mapCoordinate))
-                            .stroke(.blue, lineWidth: 5)
+                            .stroke(TrailmarkTheme.accent(for: scheme), lineWidth: 5)
                     }
                 }
-                if let first = journey.points.first { Marker("Start", systemImage: "flag.fill", coordinate: first.mapCoordinate).tint(.green) }
-                if let last = journey.points.last { Marker(journey.status == .recording ? "Latest fix" : "End", systemImage: "flag.checkered", coordinate: last.mapCoordinate).tint(.blue) }
+                if let first = journey.points.first { Marker("Start", systemImage: "flag.fill", coordinate: first.mapCoordinate).tint(TrailmarkTheme.forest) }
+                if let last = journey.points.last { Marker(journey.status == .recording ? "Latest fix" : "End", systemImage: "flag.checkered", coordinate: last.mapCoordinate).tint(TrailmarkTheme.sky) }
                 ForEach(memos) { memo in
                     if let point = memo.coordinate {
                         Annotation(memo.type == .video ? "Video memo" : "Voice memo", coordinate: point.mapCoordinate) {
                             Button { onSelectMemo(memo) } label: {
                                 Image(systemName: memo.type == .video ? "video.fill" : "mic.fill")
-                                    .padding(10).background(.orange, in: Circle()).foregroundStyle(.white)
+                                    .frame(width: 44, height: 44).background(TrailmarkTheme.clay, in: Circle()).foregroundStyle(.white)
                             }
                             .accessibilityLabel("Play \(memo.type.rawValue) memo from \(memo.date.formatted(date: .omitted, time: .shortened))")
                         }
@@ -40,7 +44,7 @@ public struct JourneyMapSurface: View {
             .mapControls { MapCompass(); MapScaleView() }
             .overlay(alignment: .topTrailing) {
                 Button("Fit route", systemImage: "arrow.up.left.and.arrow.down.right") { position = .automatic }
-                    .labelStyle(.iconOnly).padding(10).background(.regularMaterial, in: Circle()).padding(8)
+                    .labelStyle(.iconOnly).frame(width: 44, height: 44).background(.regularMaterial, in: Circle()).padding(8)
             }
         }
     }

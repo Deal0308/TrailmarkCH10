@@ -6,6 +6,7 @@ import HealthKit
 public final class ActivityHealthService: ActivityHealthProviding {
     let store: HKHealthStore?
     private let scope: ActivityHealthScope
+    private let requestsAuthorizationOnRead: Bool
 
     #if os(watchOS)
     public var onLiveVitals: ((LiveVitalsSnapshot) -> Void)?
@@ -16,12 +17,17 @@ public final class ActivityHealthService: ActivityHealthProviding {
     var liveVitalsRolloverTask: Task<Void, Never>?
     var isLiveVitalsStreaming = false
     var liveVitalsQueryGeneration = 0
-    var liveVitalsStartGeneration = 0
     #endif
 
-    public init(scope: ActivityHealthScope = .allMetrics) {
+    public init(scope: ActivityHealthScope = .allMetrics, requestsAuthorizationOnRead: Bool = true) {
         self.scope = scope
+        self.requestsAuthorizationOnRead = requestsAuthorizationOnRead
+        #if os(watchOS) && targetEnvironment(simulator)
+        // Navigation and media do not depend on a simulator Health connection.
+        store = nil
+        #else
         store = HKHealthStore.isHealthDataAvailable() ? HKHealthStore() : nil
+        #endif
     }
 
     public func readActivity(from start: Date, to end: Date) async throws -> JourneyHealthSummary {
@@ -33,7 +39,9 @@ public final class ActivityHealthService: ActivityHealthProviding {
         case .allMetrics:
             types = [HKQuantityType(.stepCount), HKQuantityType(.distanceWalkingRunning), HKQuantityType(.activeEnergyBurned), HKQuantityType(.dietaryWater)]
         }
-        try await store.requestAuthorization(toShare: [], read: types)
+        if requestsAuthorizationOnRead {
+            try await store.requestAuthorization(toShare: [], read: types)
+        }
         guard end > start else {
             return JourneyHealthSummary(steps: nil, distanceMeters: nil, activeEnergyKilocalories: nil, hydrationMilliliters: nil)
         }

@@ -26,6 +26,8 @@
 	<string>Trailmark saves walking workouts and their heart-rate and energy data after you start a workout.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Trailmark uses the Apple Watch microphone to record voice memos that you choose to save.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Trailmark uses wrist motion after you tap Start to show movement strength and whether your wrist is moving.</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

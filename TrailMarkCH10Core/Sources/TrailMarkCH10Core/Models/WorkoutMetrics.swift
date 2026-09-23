@@ -19,6 +19,7 @@ public struct WorkoutMetrics: Codable, Equatable, Sendable {
     public let startedAt: Date?
     public let elapsedTime: TimeInterval
     public let currentHeartRateBPM: Double?
+    public let heartRateSampleDate: Date?
     public let averageHeartRateBPM: Double?
     public let activeEnergyKilocalories: Double?
     public let statusMessage: String
@@ -28,6 +29,7 @@ public struct WorkoutMetrics: Codable, Equatable, Sendable {
         startedAt: Date? = nil,
         elapsedTime: TimeInterval = 0,
         currentHeartRateBPM: Double? = nil,
+        heartRateSampleDate: Date? = nil,
         averageHeartRateBPM: Double? = nil,
         activeEnergyKilocalories: Double? = nil,
         statusMessage: String = "Ready to start a walking workout."
@@ -36,6 +38,7 @@ public struct WorkoutMetrics: Codable, Equatable, Sendable {
         self.startedAt = startedAt
         self.elapsedTime = elapsedTime.isFinite ? max(0, elapsedTime) : 0
         self.currentHeartRateBPM = Self.validHeartRate(currentHeartRateBPM)
+        self.heartRateSampleDate = self.currentHeartRateBPM == nil ? nil : heartRateSampleDate
         self.averageHeartRateBPM = Self.validHeartRate(averageHeartRateBPM)
         self.activeEnergyKilocalories = activeEnergyKilocalories.flatMap {
             $0.isFinite && $0 >= 0 ? $0 : nil

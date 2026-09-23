@@ -1,188 +1,185 @@
 import SwiftUI
 import TrailMarkCH10Core
 
-/// Main screen that displays today's HealthKit activity totals.
+/// A daily overview; the shared view model owns Health access and data loading.
 struct TodayDashboardView: View {
-    /// Observable manager that owns HealthKit loading state and activity values.
     let viewModel: TodayViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.colorScheme) private var scheme
+    @ScaledMetric(relativeTo: .largeTitle) private var stepSize: CGFloat = 58
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    metricGrid
-
-                    // Show one of the status panels only when loading, an error, or no data needs explanation.
-                    if viewModel.isLoading && !viewModel.hasCompletedInitialLoad {
-                        ProgressView("Loading today's health data")
-                            .frame(maxWidth: .infinity, minHeight: 120)
-                    } else if let errorMessage = viewModel.errorMessage {
-                        StatePanel(
-                            title: "Unable to Load Health Data",
-                            message: errorMessage,
-                            buttonTitle: "Try Again",
-                            systemImage: "exclamationmark.triangle",
-                            action: {
-                                Task {
-                                    await viewModel.retry()
-                                }
-                            }
-                        )
-                    } else if viewModel.hasCompletedInitialLoad && !viewModel.hasReadableData {
-                        StatePanel(
-                            title: "No Health Data",
-                            message: "No readable activity or hydration samples are available for today. Data may be missing, still syncing, or not shared; Health does not reveal whether reads were declined.",
-                            buttonTitle: "Refresh",
-                            systemImage: "heart.text.square",
-                            action: {
-                                Task {
-                                    await viewModel.retry()
-                                }
-                            }
-                        )
+                VStack(alignment: .leading, spacing: 24) {
+                    TrailmarkSectionHeader(
+                        eyebrow: Date.now.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()),
+                        title: "A little further,\nevery day.",
+                        subtitle: "Your movement, one day at a time."
+                    )
+                    stepsHero
+                    essentials
+                    healthState
+                    HStack(spacing: 8) {
+                        Image(systemName: "heart.text.clipboard")
+                        Text("Your day, brought together with Apple Health.")
                     }
+                    .font(.caption)
+                    .foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 6)
                 }
-                .padding()
+                .padding(.horizontal, 22)
+                .padding(.top, 12)
+                .padding(.bottom, 30)
+                .frame(maxWidth: 720)
+                .frame(maxWidth: .infinity)
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("Today")
-            .task {
-                await viewModel.loadInitialData()
-            }
-            .refreshable {
-                await viewModel.refreshToday()
-            }
-        }
-    }
-
-    /// Header text showing the current day.
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("TODAY")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-
-            Text(Date.now, format: .dateTime.weekday(.wide).month(.wide).day())
-                .font(.title2)
-                .fontWeight(.semibold)
-        }
-    }
-
-    /// Two-column metric layout for steps, distance, active energy, and hydration.
-    private var metricGrid: some View {
-        let summary = viewModel.activitySummary
-
-        return LazyVGrid(
-            columns: dynamicTypeSize.isAccessibilitySize ? [
-                GridItem(.flexible())
-            ] : [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12)
-            ],
-            spacing: 12
-        ) {
-            MetricCard(
-                title: "Steps",
-                value: viewModel.metrics?.steps == nil ? "—" : summary.stepsText,
-                unit: "steps",
-                systemImage: "figure.walk"
-            )
-
-            MetricCard(
-                title: "Distance",
-                value: viewModel.metrics?.distanceMeters == nil ? "—" : summary.distanceText,
-                unit: "",
-                systemImage: "map"
-            )
-
-            MetricCard(
-                title: "Active Energy",
-                value: viewModel.metrics?.activeEnergyKilocalories == nil ? "—" : summary.activeEnergyText,
-                unit: "",
-                systemImage: "flame"
-            )
-
-            MetricCard(
-                title: "Hydration",
-                value: viewModel.metrics?.hydrationMilliliters == nil ? "—" : summary.hydrationText,
-                unit: "",
-                systemImage: "drop.fill"
-            )
-        }
-    }
-}
-
-/// Reusable card for showing one activity metric.
-private struct MetricCard: View {
-    let title: String
-    let value: String
-    let unit: String
-    let systemImage: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .foregroundStyle(.blue)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(value)
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if !unit.isEmpty {
-                        Text(unit)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+            .trailmarkScreen()
+            .navigationTitle("Trailmark")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Refresh Health", systemImage: "arrow.clockwise") {
+                        Task { await viewModel.refreshToday() }
                     }
+                    .disabled(viewModel.isLoading)
+                }
+            }
+            .task { await viewModel.loadInitialData() }
+            .refreshable { await viewModel.refreshToday() }
+        }
+    }
+
+    private var stepsHero: some View {
+        TrailmarkHero {
+            VStack(alignment: .leading, spacing: 22) {
+                HStack {
+                    Label("TODAY’S STEPS", systemImage: "figure.walk")
+                        .font(.caption.weight(.semibold))
+                        .tracking(1.5)
+                    Spacer(minLength: 8)
+                    Image(systemName: "sun.max")
+                        .font(.title3.weight(.light))
+                        .foregroundStyle(TrailmarkTheme.lime)
+                        .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(viewModel.metrics?.steps == nil ? "—" : viewModel.activitySummary.stepsText)
+                        .font(.system(size: stepSize, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .contentTransition(.numericText())
+                    Text(viewModel.metrics?.steps == nil ? "Room for your next step." : "Every step belongs to your story.")
+                        .font(.subheadline)
+                        .foregroundStyle(TrailmarkTheme.cream)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Today’s steps")
+                .accessibilityValue(viewModel.metrics?.steps == nil ? "Unavailable" : viewModel.activitySummary.stepsText)
+                HStack(spacing: 6) {
+                    Circle().fill(TrailmarkTheme.lime).frame(width: 5, height: 5).accessibilityHidden(true)
+                    Text(heroStatus)
+                        .font(.caption)
+                        .foregroundStyle(TrailmarkTheme.cream)
                 }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
-}
 
-/// Reusable panel for loading problems and empty-data messages.
-private struct StatePanel: View {
-    let title: String
-    let message: String
-    let buttonTitle: String
-    let systemImage: String
-    let action: () -> Void
-
-    var body: some View {
+    private var essentials: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: systemImage)
-                .font(.headline)
-
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Button(action: action) {
-                Label(buttonTitle, systemImage: "arrow.clockwise")
+            HStack {
+                Text("Daily essentials")
+                    .font(.system(.title3, design: .serif, weight: .semibold))
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                Text("TODAY").font(.caption2.weight(.semibold)).tracking(1.5)
+                    .foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
             }
-            .buttonStyle(.borderedProminent)
+            LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize
+                      ? [GridItem(.flexible())]
+                      : [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                TrailmarkMetricTile(
+                    title: "Distance",
+                    value: viewModel.metrics?.distanceMeters == nil ? "—" : viewModel.activitySummary.distanceText,
+                    systemImage: "point.topleft.down.to.point.bottomright.curvepath",
+                    tint: TrailmarkTheme.forest
+                )
+                TrailmarkMetricTile(
+                    title: "Active energy",
+                    value: viewModel.metrics?.activeEnergyKilocalories == nil ? "—" : viewModel.activitySummary.activeEnergyText,
+                    systemImage: "flame",
+                    tint: TrailmarkTheme.clay
+                )
+            }
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: "drop.fill")
+                    .font(.title3)
+                    .foregroundStyle(scheme == .dark ? TrailmarkTheme.cream : TrailmarkTheme.sky)
+                    .frame(width: 46, height: 52)
+                    .background(TrailmarkTheme.sky.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Hydration").font(.subheadline.weight(.semibold))
+                    Text("Water logged in Health")
+                        .font(.caption)
+                        .foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
+                    if dynamicTypeSize.isAccessibilitySize { hydrationValue }
+                }
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Spacer(minLength: 6)
+                    hydrationValue
+                }
+            }
+            .trailmarkCard()
+            .accessibilityElement(children: .combine)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
-}
 
-#Preview {
-    TodayDashboardView(viewModel: TodayViewModel())
+    private var hydrationValue: some View {
+        Text(viewModel.metrics?.hydrationMilliliters == nil ? "—" : viewModel.activitySummary.hydrationText)
+            .font(.system(.title3, design: .rounded, weight: .semibold))
+            .monospacedDigit()
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var healthState: some View {
+        if viewModel.isLoading {
+            ProgressView(viewModel.hasCompletedInitialLoad ? "Refreshing your day…" : "Bringing your day together…")
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .trailmarkCard()
+        } else if let error = viewModel.errorMessage {
+            VStack(spacing: 12) {
+                TrailmarkNotice(title: "Health is taking a moment", message: error, systemImage: "heart.slash", tint: TrailmarkTheme.clay)
+                Button("Try again", systemImage: "arrow.clockwise") { Task { await viewModel.retry() } }
+                    .buttonStyle(TrailmarkSecondaryButtonStyle())
+            }
+        } else if viewModel.hasCompletedInitialLoad && !viewModel.hasReadableData {
+            VStack(alignment: .leading, spacing: 14) {
+                TrailmarkNotice(
+                    title: "A fresh page",
+                    message: "Your measurements appear here when they’re recorded and shared through Apple Health.",
+                    systemImage: "leaf"
+                )
+                DisclosureGroup("About missing measurements") {
+                    Text("A dash means no readable data. Samples may still be syncing, may not have been recorded, or may not be shared with Trailmark. Health keeps read-permission choices private.")
+                        .font(.footnote)
+                        .foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
+                        .padding(.top, 8)
+                }
+                .font(.footnote.weight(.medium))
+            }
+        }
+    }
+
+    private var heroStatus: String {
+        if viewModel.isLoading { return "Reading Apple Health…" }
+        if let date = viewModel.metrics?.queriedAt {
+            return "Updated \(date.formatted(date: .omitted, time: .shortened))"
+        }
+        return "Measurements appear when available"
+    }
 }

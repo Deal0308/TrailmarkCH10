@@ -1,4 +1,5 @@
 import SwiftUI
+import TrailMarkCH10Core
 
 /// Draws values supplied by the view model and forwards seek gestures.
 struct AudioWaveformView: View {
@@ -7,6 +8,8 @@ struct AudioWaveformView: View {
     let level: Float
     let isPlaying: Bool
     let onSeek: (Double) -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geometry in
@@ -15,13 +18,13 @@ struct AudioWaveformView: View {
                 let slot = size.width / CGFloat(samples.count)
                 for (index, sample) in samples.enumerated() {
                     let nearPlayhead = abs(Double(index) - progress * Double(samples.count)) < 4
-                    let boost = isPlaying && nearPlayhead ? 1 + CGFloat(level) * 0.5 : 1
+                    let boost = isPlaying && nearPlayhead && !reduceMotion ? 1 + CGFloat(level) * 0.5 : 1
                     let height = max(2, min(1, CGFloat(sample) * boost) * size.height)
                     let rect = CGRect(x: CGFloat(index) * slot + slot * 0.2,
                                       y: (size.height - height) / 2, width: max(1, slot * 0.6), height: height)
                     let played = Double(index) / Double(samples.count) < progress
                     context.fill(Path(roundedRect: rect, cornerRadius: slot / 2),
-                                 with: .color(played ? .blue : .secondary.opacity(0.35)))
+                                 with: .color(played ? TrailmarkTheme.accent(for: colorScheme) : TrailmarkTheme.secondaryInk(for: colorScheme).opacity(0.25)))
                 }
             }
             .contentShape(Rectangle())

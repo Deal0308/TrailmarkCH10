@@ -15,7 +15,8 @@ public extension TodayViewModel {
     }
 
     var stepStatusText: String {
-        if isLoading || !hasCompletedInitialLoad { return "Updating Health…" }
+        if isLoading { return "Updating Health…" }
+        if !hasCompletedInitialLoad { return "Health optional · Enable in Vitals" }
         if errorMessage != nil { return "Health unavailable" }
         guard let metrics, metrics.steps != nil else { return "No step data available" }
         return "Updated \(metrics.queriedAt.formatted(date: .omitted, time: .shortened))"

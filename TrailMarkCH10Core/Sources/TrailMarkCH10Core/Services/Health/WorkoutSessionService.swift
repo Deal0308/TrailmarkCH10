@@ -22,7 +22,11 @@ public final class WorkoutSessionService: NSObject {
     #endif
 
     public override init() {
+        #if os(watchOS) && targetEnvironment(simulator)
+        healthStore = nil
+        #else
         healthStore = HKHealthStore.isHealthDataAvailable() ? HKHealthStore() : nil
+        #endif
         super.init()
 
         #if os(iOS)
@@ -39,7 +43,7 @@ public final class WorkoutSessionService: NSObject {
     public func start() async {
         guard !metrics.isActive else { return }
         guard let healthStore else {
-            fail("Health data is unavailable on this device.")
+            fail("Workout sensors require an Apple Watch with Health available. You can return and use the other pages.")
             return
         }
         resetForNewWorkout(message: "Requesting Health access…")
@@ -113,6 +117,7 @@ public final class WorkoutSessionService: NSObject {
         startedAt: Date? = nil,
         elapsedTime: TimeInterval? = nil,
         currentHeartRate: Double? = nil,
+        heartRateSampleDate: Date? = nil,
         averageHeartRate: Double? = nil,
         activeEnergy: Double? = nil,
         message: String? = nil
@@ -122,6 +127,7 @@ public final class WorkoutSessionService: NSObject {
             startedAt: startedAt ?? metrics.startedAt,
             elapsedTime: elapsedTime ?? metrics.elapsedTime,
             currentHeartRateBPM: currentHeartRate ?? metrics.currentHeartRateBPM,
+            heartRateSampleDate: heartRateSampleDate ?? metrics.heartRateSampleDate,
             averageHeartRateBPM: averageHeartRate ?? metrics.averageHeartRateBPM,
             activeEnergyKilocalories: activeEnergy ?? metrics.activeEnergyKilocalories,
             statusMessage: message ?? metrics.statusMessage
@@ -150,6 +156,7 @@ public final class WorkoutSessionService: NSObject {
             startedAt: metrics.startedAt,
             elapsedTime: metrics.elapsedTime,
             currentHeartRateBPM: metrics.currentHeartRateBPM,
+            heartRateSampleDate: metrics.heartRateSampleDate,
             averageHeartRateBPM: metrics.averageHeartRateBPM,
             activeEnergyKilocalories: metrics.activeEnergyKilocalories,
             statusMessage: "Workout unavailable."
@@ -204,16 +211,19 @@ public final class WorkoutSessionService: NSObject {
         let energyType = HKQuantityType(.activeEnergyBurned)
         let heartUnit = HKUnit.count().unitDivided(by: .minute())
         var current = metrics.currentHeartRateBPM
+        var heartRateDate = metrics.heartRateSampleDate
         var average = metrics.averageHeartRateBPM
         var energy = metrics.activeEnergyKilocalories
         if types.contains(heartType), let statistics = builder.statistics(for: heartType) {
             current = statistics.mostRecentQuantity()?.doubleValue(for: heartUnit)
+            heartRateDate = statistics.mostRecentQuantityDateInterval()?.end
             average = statistics.averageQuantity()?.doubleValue(for: heartUnit)
         }
         if types.contains(energyType) {
             energy = builder.statistics(for: energyType)?.sumQuantity()?.doubleValue(for: .kilocalorie())
         }
         update(elapsedTime: builder.elapsedTime, currentHeartRate: current,
+               heartRateSampleDate: heartRateDate,
                averageHeartRate: average, activeEnergy: energy)
     }
 

@@ -6,7 +6,9 @@ Assignment 2 extends the same **TrailMarkWatchCh10 Watch App** target created fo
 
 The watch recorder uses a mono AAC `.m4a` file at 22.05 kHz and 32 kbps, capped at 60 seconds. This keeps recordings small and the interaction brief. Duration is read from the finalized audio file before the shared store copies it into Application Support and commits its metadata index. The stored filename remains relative.
 
-The existing watch scheme and its embedded iPhone companion completed a generic build successfully on **September 19, 2026**, including Assignment 3 in the same target. Xcode emitted only its AppIntents metadata-skip warning because the project has no AppIntents dependency. Automated tests, simulators, and physical-watch runtime were not used. Microphone input and audible playback still require a physical Apple Watch demonstration.
+The redesigned watch scheme and iPhone companion passed generic **watchOS device and watchOS Simulator builds** on **September 22, 2026**. Current visual runtime checks remain pending. An earlier simulator check confirmed all four pages were reachable without Health authorization before the redesign; it does not validate the new memo layout. No automated tests, new simulator launch, microphone recording/playback check, or physical-watch verification was performed for this visual revision. Microphone input and audible playback still require a physical Apple Watch demonstration. See the [Course 2 final report](WatchFinalReport.md).
+
+The redesigned memo page uses a black canvas, compact saved-note rows, and one prominent coral Record/Stop action. Its watch presentation components live in `Views/Components/WatchDesign.swift` and reuse `Presentation/Design/TrailmarkTheme.swift` from the package. Recording, persistence, retry, and playback still belong to the existing shared services and view model.
 
 ## Acceptance criteria and rubric mapping
 
@@ -24,11 +26,15 @@ The point value for the reflection row was not present in the supplied rubric, s
 ```text
 TrailMarkWatchCh10 Watch App/
   App/TrailMarkWatchCh10App.swift
-      # one continuous watch app; composes Home, Workout, Voice Memos, and Live Vitals
+      # four pages: Home, Voice Memos, Live Vitals, Motion; Workout opens from Home
   Views/WatchMemoListView.swift
       # Record/Stop, compact saved list, and focused playback detail
+  Views/Components/WatchDesign.swift
+      # wrist-only visual components, backed by the shared design file
 
 TrailMarkCH10Core/Sources/TrailMarkCH10Core/
+  Presentation/Design/TrailmarkTheme.swift
+      # same visual identity used by the phone
   Models/JournalMedia.swift
       # same audio/video metadata model used by iOS
   Models/CapturedMedia.swift
@@ -48,6 +54,8 @@ TrailMarkCH10Core/Sources/TrailMarkCH10Core/
 The dependency direction is **WatchMemoListView → WatchMemoViewModel → media services/store → shared models**. The watch views import SwiftUI and `TrailMarkCH10Core`; they do not import AVFoundation, request microphone permission, construct players/recorders, or read/write files.
 
 ## User flow and graceful states
+
+Voice Memos has no Health dependency. Launching the watch app, opening Vitals, or navigating to Memos does not request Health authorization. On a physical watch, **Enable Health** on Vitals is a separate choice; simulator Health is unavailable without blocking navigation or the memo interface. Microphone permission is still required to record.
 
 1. The user swipes from Wrist Home to Voice Memos and taps **Record Memo**.
 2. The package requests microphone permission at that moment and starts the watch audio session only when permission is granted.

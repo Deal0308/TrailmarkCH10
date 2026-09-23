@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Trailmark — an ascending trail within a mountain peak</title>
+  <desc>Original geometric artwork. Full opaque square background; system app-icon masks supply the outer shape.</desc>
+  <rect width="1024" height="1024" fill="#173E34"/>
+  <path d="M280 712 L485 327 Q512 277 539 327 L744 712"
+        fill="none" stroke="#F4F1E7" stroke-width="64"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M448 746 C392 712 442 662 506 632 C586 595 605 552 535 517 C485 492 479 464 505 432"
+        fill="none" stroke="#D3ED8A" stroke-width="57"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -6,36 +6,45 @@ import HealthKit
 /// HealthKit performs the aggregation so steps from multiple sources are not
 /// manually added or double-counted.
 extension ActivityHealthService: LiveVitalsProviding {
-    public func startLiveVitalsUpdates() async throws {
-        guard !isLiveVitalsStreaming else {
-            onLiveVitals?(liveVitalsSnapshot)
-            return
-        }
-        guard let store else { throw LiveVitalsHealthError.unavailable }
-        liveVitalsStartGeneration += 1
-        let startGeneration = liveVitalsStartGeneration
+    public var liveVitalsUnavailableReason: String? {
+        #if targetEnvironment(simulator)
+        return "Live vitals need a physical Apple Watch. You can still explore every page and use Voice Memos here."
+        #else
+        return store == nil ? "Health is unavailable. Voice Memos and Motion work independently." : nil
+        #endif
+    }
 
+    /// Called only by the explicit Enable Health action. A completed request
+    /// does not establish which read permissions the person granted.
+    public func requestLiveVitalsAuthorization() async throws {
+        guard let store else { throw LiveVitalsHealthError.unavailable }
         let readTypes: Set<HKObjectType> = [
             HKQuantityType(.heartRate),
             HKQuantityType(.stepCount),
             HKQuantityType(.activeEnergyBurned)
         ]
         try await store.requestAuthorization(toShare: [], read: readTypes)
-        guard !Task.isCancelled, startGeneration == liveVitalsStartGeneration else {
-            throw CancellationError()
+    }
+
+    /// Restarts a foreground subscription without opening another permission sheet.
+    public func startLiveVitalsUpdates() throws {
+        guard !isLiveVitalsStreaming else {
+            onLiveVitals?(liveVitalsSnapshot)
+            return
         }
+        guard store != nil else { throw LiveVitalsHealthError.unavailable }
 
         isLiveVitalsStreaming = true
         let dayStart = Calendar.autoupdatingCurrent.startOfDay(for: Date())
         if liveVitalsDayStart != dayStart {
             liveVitalsSnapshot = .empty
         }
+        onLiveVitals?(liveVitalsSnapshot)
         installLiveVitalsQueries(dayStart: dayStart)
         scheduleLiveVitalsDayRollover(from: dayStart)
     }
 
     public func stopLiveVitalsUpdates() {
-        liveVitalsStartGeneration += 1
         isLiveVitalsStreaming = false
         liveVitalsRolloverTask?.cancel()
         liveVitalsRolloverTask = nil
