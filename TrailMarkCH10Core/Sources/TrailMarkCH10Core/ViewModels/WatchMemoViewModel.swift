@@ -23,8 +23,10 @@ public final class WatchMemoViewModel {
     @ObservationIgnored private var recordingLimitTask: Task<Void, Never>?
     @ObservationIgnored private var playbackUpdates: Task<Void, Never>?
     @ObservationIgnored private var pendingCapture: CapturedMedia?
+    @ObservationIgnored private let pocketSync: PocketSyncService?
 
-    public init(store: JournalMediaStore? = nil) {
+    public init(store: JournalMediaStore? = nil, pocketSync: PocketSyncService? = nil) {
+        self.pocketSync = pocketSync
         do {
             self.store = try store ?? JournalMediaStore()
             reload()
@@ -197,6 +199,20 @@ public final class WatchMemoViewModel {
         }
     }
 
+    public func syncToPhone(_ item: JournalMedia) {
+        guard let store, let pocketSync else {
+            errorMessage = "Pocket Sync is unavailable."
+            return
+        }
+        do {
+            try pocketSync.queueMemo(fileURL: store.fileURL(for: item), item: item)
+            errorMessage = nil
+            statusMessage = "Voice memo queued for iPhone."
+        } catch {
+            errorMessage = "The memo is saved, but could not be queued: \(error.localizedDescription)"
+        }
+    }
+
     public func reload() {
         items = store?.media.filter { $0.type == .audio } ?? []
     }
@@ -205,7 +221,7 @@ public final class WatchMemoViewModel {
         guard let capture = pendingCapture else { throw WatchMemoViewModelError.recordingUnavailable }
         guard let store else { throw WatchMemoViewModelError.storageUnavailable }
         let capturedAt = recordingStartedAt ?? Date()
-        _ = try await Task.detached(priority: .userInitiated) {
+        let item = try await Task.detached(priority: .userInitiated) {
             try store.importMedia(
                 from: capture.url,
                 type: .audio,
@@ -218,7 +234,17 @@ public final class WatchMemoViewModel {
         recordingStartedAt = nil
         phase = .idle
         errorMessage = nil
-        statusMessage = "Voice memo saved."
+        if let pocketSync {
+            do {
+                try pocketSync.queueMemo(fileURL: store.fileURL(for: item), item: item)
+                statusMessage = "Saved · queued for iPhone"
+            } catch {
+                errorMessage = "Memo saved on Apple Watch. Open it and retry Sync to iPhone. \(error.localizedDescription)"
+                statusMessage = "Saved on Apple Watch"
+            }
+        } else {
+            statusMessage = "Voice memo saved."
+        }
         reload()
     }
 

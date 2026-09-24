@@ -21,6 +21,13 @@ struct JourneysView: View {
                         TrailmarkNotice(title: "A journey update", message: error,
                                         systemImage: "exclamationmark.triangle", tint: TrailmarkTheme.clay)
                     }
+                    if let summary = viewModel.latestPocketSyncSummary {
+                        TrailmarkNotice(
+                            title: "Pocket Sync",
+                            message: "Latest watch activity: \(summary.activityDate.formatted(date: .abbreviated, time: .shortened)) · \(durationText(summary.duration)). Background delivery does not require both apps to stay open.",
+                            systemImage: "applewatch"
+                        )
+                    }
 
                     if let active = viewModel.activeJourney {
                         activeJourneyCard(active)
@@ -129,7 +136,7 @@ struct JourneysView: View {
         } label: {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "map")
+                    Image(systemName: journey.watchActivity == nil ? "map" : "applewatch")
                         .font(.title3)
                         .foregroundStyle(TrailmarkTheme.accent(for: colorScheme))
                         .frame(width: 48, height: 48)
@@ -139,6 +146,9 @@ struct JourneysView: View {
                         Text(journey.title).font(.headline).foregroundStyle(TrailmarkTheme.ink(for: colorScheme))
                         Text(journey.startDate, format: .dateTime.month(.abbreviated).day().year())
                             .font(.caption).foregroundStyle(.secondary)
+                        if journey.watchActivity != nil {
+                            TrailmarkBadge("SYNCED FROM WATCH", systemImage: "iphone.and.arrow.forward")
+                        }
                     }
                     Spacer(minLength: 0)
                     Image(systemName: "arrow.up.right").font(.caption.weight(.semibold))
@@ -157,12 +167,24 @@ struct JourneysView: View {
 
     @ViewBuilder
     private func savedStats(_ journey: Journey) -> some View {
-        Label(journey.distanceText, systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-            .font(.subheadline.monospacedDigit())
-        Label(journey.durationText, systemImage: "clock")
-            .font(.subheadline.monospacedDigit())
+        if let activity = journey.watchActivity {
+            Label("Watch activity", systemImage: "applewatch")
+                .font(.subheadline)
+            Label(activity.durationText, systemImage: "clock")
+                .font(.subheadline.monospacedDigit())
+        } else {
+            Label(journey.distanceText, systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                .font(.subheadline.monospacedDigit())
+            Label(journey.durationText, systemImage: "clock")
+                .font(.subheadline.monospacedDigit())
+        }
         TrailmarkBadge(journey.status.rawValue.capitalized,
                        tint: journey.status == .interrupted ? TrailmarkTheme.clay : nil)
+    }
+
+    private func durationText(_ duration: TimeInterval) -> String {
+        let seconds = Int(max(0, duration).rounded())
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
     private var newJourneySheet: some View {

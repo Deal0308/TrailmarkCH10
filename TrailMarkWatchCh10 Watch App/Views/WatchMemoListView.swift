@@ -222,6 +222,11 @@ private struct WatchMemoPlaybackView: View {
                 }
                 .buttonStyle(WatchActionStyle(tint: WatchDesign.coral))
 
+                Button("Sync to iPhone", systemImage: "iphone.and.arrow.forward") {
+                    viewModel.syncToPhone(item)
+                }
+                .buttonStyle(WatchActionStyle(tint: WatchDesign.accent, prominent: false))
+
                 if let error = viewModel.errorMessage {
                     Text(error)
                         .font(.caption2)

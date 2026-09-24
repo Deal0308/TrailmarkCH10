@@ -8,13 +8,24 @@ import Observation
 public final class WorkoutViewModel {
     public private(set) var metrics: WorkoutMetrics = .idle
     public private(set) var errorMessage: String?
+    public private(set) var pocketSyncMessage: String?
     @ObservationIgnored private let service: WorkoutSessionService
+    @ObservationIgnored private let pocketSync: PocketSyncService?
 
-    public init(service: WorkoutSessionService = WorkoutSessionService()) {
+    public init(service: WorkoutSessionService = WorkoutSessionService(), pocketSync: PocketSyncService? = nil) {
         self.service = service
+        self.pocketSync = pocketSync
         service.onMetrics = { [weak self] metrics in
             self?.metrics = metrics
             if metrics.state != .failed { self?.errorMessage = nil }
+            #if os(watchOS)
+            self?.pocketSync?.observeWorkout(metrics)
+            #endif
+            if metrics.state == .completed, self?.pocketSync != nil {
+                self?.pocketSyncMessage = "Activity queued for iPhone Journeys."
+            } else if metrics.state == .requestingAuthorization {
+                self?.pocketSyncMessage = nil
+            }
         }
         service.onError = { [weak self] message in
             self?.errorMessage = message

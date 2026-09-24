@@ -60,16 +60,17 @@ public final class JournalMediaStore: @unchecked Sendable {
     }
 
     @discardableResult
-    public func importMedia(from sourceURL: URL, type: JournalMediaType, date: Date = Date(), duration: TimeInterval, journeyID: UUID? = nil, coordinate: GeoPoint? = nil, isImported: Bool = false) throws -> JournalMedia {
+    public func importMedia(from sourceURL: URL, id: UUID = UUID(), type: JournalMediaType, date: Date = Date(), duration: TimeInterval, journeyID: UUID? = nil, coordinate: GeoPoint? = nil, isImported: Bool = false) throws -> JournalMedia {
         lock.lock(); defer { lock.unlock() }
         guard duration.isFinite, duration > 0 else { throw StoreError.invalidDuration }
         guard fileManager.fileExists(atPath: sourceURL.path) else { throw StoreError.sourceFileMissing }
+        if let existing = items.first(where: { $0.id == id }) { return existing }
         let ext = sourceURL.pathExtension.isEmpty ? (type == .audio ? "m4a" : "mov") : sourceURL.pathExtension
         let filename = UUID().uuidString + "." + ext
         guard Self.isSafe(filename) else { throw StoreError.invalidRelativeFilename }
         let destination = directoryURL.appendingPathComponent(filename)
         try fileManager.copyItem(at: sourceURL, to: destination)
-        let item = JournalMedia(type: type, date: date, duration: duration, relativeFilename: filename, journeyID: journeyID, coordinate: coordinate, isImported: isImported)
+        let item = JournalMedia(id: id, type: type, date: date, duration: duration, relativeFilename: filename, journeyID: journeyID, coordinate: coordinate, isImported: isImported)
         do { try persist(items + [item]) }
         catch { try? fileManager.removeItem(at: destination); throw error }
         items.append(item)

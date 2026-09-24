@@ -9,6 +9,8 @@ public final class JourneysViewModel {
     public private(set) var errorMessage: String?
     public private(set) var loadingHealthIDs: Set<UUID> = []
     public private(set) var healthErrors: [UUID: String] = [:]
+    public private(set) var latestPocketSyncSummary: PocketSyncSummary?
+    public private(set) var pocketSyncMessage: String?
     public let location: LocationService
     @ObservationIgnored private var requestedHealthRefreshes: Set<UUID> = []
     @ObservationIgnored private let store: JourneyStore
@@ -86,6 +88,38 @@ public final class JourneysViewModel {
 
     public func setForeground(_ foreground: Bool) { location.setForeground(foreground) }
     public func clearError() { errorMessage = nil }
+
+    /// Idempotently turns a completed watch workout into the same Journey model
+    /// used by locally recorded iPhone routes.
+    public func importWatchActivity(_ record: WatchActivityRecord) {
+        if let existing = journey(id: record.id), existing.watchActivity == record {
+            pocketSyncMessage = "Activity received from Apple Watch."
+            return
+        }
+        var journey = Journey(id: record.id, title: "Apple Watch walk", startDate: record.startDate)
+        journey.endDate = record.endDate
+        journey.status = .completed
+        journey.watchActivity = record
+        journey.health = JourneyHealthSummary(
+            steps: nil,
+            distanceMeters: nil,
+            activeEnergyKilocalories: record.activeEnergyKilocalories,
+            hydrationMilliliters: nil,
+            queriedAt: Date()
+        )
+        do {
+            try store.save(journey)
+            errorMessage = nil
+            pocketSyncMessage = "Activity received from Apple Watch."
+            reload()
+        } catch {
+            errorMessage = "The Apple Watch activity arrived but could not be saved: \(error.localizedDescription)"
+        }
+    }
+
+    public func receivePocketSyncSummary(_ summary: PocketSyncSummary) {
+        latestPocketSyncSummary = summary
+    }
 
     private func append(_ point: GeoPoint, distance: Double) {
         guard var journey = activeJourney else { return }

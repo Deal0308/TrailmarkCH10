@@ -59,6 +59,13 @@ struct WatchWorkoutView: View {
                     .foregroundStyle(viewModel.errorMessage == nil ? WatchDesign.muted : WatchDesign.coral)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if let syncMessage = viewModel.pocketSyncMessage {
+                    Label(syncMessage, systemImage: "iphone.and.arrow.forward")
+                        .font(.caption2)
+                        .foregroundStyle(WatchDesign.accent)
+                        .multilineTextAlignment(.center)
+                }
             }
             .padding(.horizontal, 7)
             .padding(.bottom, 10)

@@ -16,10 +16,16 @@ struct JourneyDetailView: View {
                     VStack(alignment: .leading, spacing: 24) {
                         journeyHeader(journey)
                         routeCard(journey)
-                        if dynamicTypeSize.isAccessibilitySize {
-                            VStack(spacing: 12) { routeMetrics(journey) }
-                        } else {
-                            HStack(alignment: .top, spacing: 12) { routeMetrics(journey) }
+                        if journey.watchActivity == nil {
+                            if dynamicTypeSize.isAccessibilitySize {
+                                VStack(spacing: 12) { routeMetrics(journey) }
+                            } else {
+                                HStack(alignment: .top, spacing: 12) { routeMetrics(journey) }
+                            }
+                        }
+
+                        if let watchActivity = journey.watchActivity {
+                            watchActivityCard(watchActivity)
                         }
 
                         if viewModel.isActive {
@@ -78,8 +84,8 @@ struct JourneyDetailView: View {
     private func journeyHeader(_ journey: Journey) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             TrailmarkBadge(
-                journey.status == .recording ? "IN PROGRESS" : journey.status == .interrupted ? "INTERRUPTED" : "IN YOUR COLLECTION",
-                systemImage: journey.status == .recording ? "location.fill" : "flag.checkered",
+                journey.watchActivity != nil ? "SYNCED FROM WATCH" : journey.status == .recording ? "IN PROGRESS" : journey.status == .interrupted ? "INTERRUPTED" : "IN YOUR COLLECTION",
+                systemImage: journey.watchActivity != nil ? "applewatch" : journey.status == .recording ? "location.fill" : "flag.checkered",
                 tint: journey.status == .interrupted ? TrailmarkTheme.clay : nil
             )
             TrailmarkSectionHeader(eyebrow: "THE JOURNEY", title: journey.title,
@@ -99,14 +105,19 @@ struct JourneyDetailView: View {
     private func routeCard(_ journey: Journey) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Your route").font(.title3.weight(.semibold))
+                Text(journey.watchActivity == nil ? "Your route" : "Watch capture")
+                    .font(.title3.weight(.semibold))
                 Spacer()
                 Image(systemName: "map").foregroundStyle(TrailmarkTheme.accent(for: colorScheme)).accessibilityHidden(true)
             }
             if journey.points.isEmpty && viewModel.memos.allSatisfy({ $0.coordinate == nil }) {
-                TrailmarkEmptyState(title: "Room for a route.",
-                                    message: "Accurate location updates will bring your path into view. Health and memos are available here even without a route.",
-                                    systemImage: "location.slash")
+                TrailmarkEmptyState(
+                    title: journey.watchActivity == nil ? "Room for a route." : "Activity recorded on your wrist.",
+                    message: journey.watchActivity == nil
+                        ? "Accurate location updates will bring your path into view. Health and memos are available here even without a route."
+                        : "Pocket Sync transfers the completed activity record and attached memos. This watch workout did not include route points.",
+                    systemImage: journey.watchActivity == nil ? "location.slash" : "applewatch"
+                )
             } else {
                 JourneyMapSurface(journey: journey, memos: viewModel.memos) { selectedMemo = $0 }
                     .frame(height: 300)
@@ -119,6 +130,38 @@ struct JourneyDetailView: View {
             .font(.subheadline)
         }
         .trailmarkCard(padding: 16)
+    }
+
+    private func watchActivityCard(_ activity: WatchActivityRecord) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Label("Watch activity", systemImage: "applewatch")
+                .font(.title3.weight(.semibold))
+            Text("Recorded on Apple Watch and delivered with Pocket Sync.")
+                .font(.caption).foregroundStyle(.secondary)
+            VStack(spacing: 16) {
+                HStack {
+                    Label("Active duration", systemImage: "clock")
+                    Spacer()
+                    Text(activity.durationText).fontWeight(.semibold).monospacedDigit()
+                }
+                Divider()
+                HStack {
+                    Label("Average heart rate", systemImage: "heart.fill")
+                    Spacer()
+                    Text(activity.averageHeartRateBPM.map { "\($0.formatted(.number.precision(.fractionLength(0)))) BPM" } ?? "Unavailable")
+                        .fontWeight(.semibold).monospacedDigit()
+                }
+                Divider()
+                HStack {
+                    Label("Workout energy", systemImage: "flame.fill")
+                    Spacer()
+                    Text(activity.activeEnergyKilocalories.map { "\($0.formatted(.number.precision(.fractionLength(0)))) kcal" } ?? "Unavailable")
+                        .fontWeight(.semibold).monospacedDigit()
+                }
+            }
+            .font(.subheadline)
+        }
+        .trailmarkCard()
     }
 
     @ViewBuilder

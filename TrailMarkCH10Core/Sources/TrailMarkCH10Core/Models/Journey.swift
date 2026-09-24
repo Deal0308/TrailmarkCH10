@@ -45,6 +45,8 @@ public struct Journey: Identifiable, Codable, Equatable, Sendable {
     public var points: [GeoPoint]
     public var distanceMeters: Double
     public var health: JourneyHealthSummary?
+    /// Present when this journey was created from a completed Apple Watch workout.
+    public var watchActivity: WatchActivityRecord?
 
     public init(id: UUID = UUID(), title: String, startDate: Date = Date()) {
         self.id = id
@@ -55,6 +57,7 @@ public struct Journey: Identifiable, Codable, Equatable, Sendable {
         self.points = []
         self.distanceMeters = 0
         self.health = nil
+        self.watchActivity = nil
     }
 
     public var duration: TimeInterval { max(0, (endDate ?? Date()).timeIntervalSince(startDate)) }

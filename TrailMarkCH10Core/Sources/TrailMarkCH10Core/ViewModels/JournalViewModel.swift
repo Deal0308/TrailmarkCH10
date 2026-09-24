@@ -49,6 +49,34 @@ public final class JournalViewModel {
         reload()
     }
 
+    /// Imports a staged WatchConnectivity file into the same relative-path media
+    /// store as iPhone recordings. Repeated delivery is harmless because IDs dedupe it.
+    public func importPocketMemo(_ incoming: IncomingPocketMemo) async {
+        if items.contains(where: { $0.id == incoming.metadata.mediaID }) {
+            MediaFileService.removeTemporaryFile(incoming.stagedFileURL)
+            return
+        }
+        do {
+            _ = try await Task.detached(priority: .userInitiated) { [store] in
+                try store.importMedia(
+                    from: incoming.stagedFileURL,
+                    id: incoming.metadata.mediaID,
+                    type: .audio,
+                    date: incoming.metadata.date,
+                    duration: incoming.metadata.duration,
+                    journeyID: incoming.metadata.journeyID,
+                    coordinate: nil,
+                    isImported: true
+                )
+            }.value
+            MediaFileService.removeTemporaryFile(incoming.stagedFileURL)
+            errorMessage = nil
+            reload()
+        } catch {
+            errorMessage = "A watch memo arrived but could not be imported: \(error.localizedDescription)"
+        }
+    }
+
     public func importVideo(url: URL) async {
         guard !isImporting else { MediaFileService.removeTemporaryFile(url); return }
         isImporting = true
