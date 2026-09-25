@@ -7,11 +7,13 @@ import Foundation
 @MainActor
 final class WatchAudioMemoService {
     private var recorder: AVAudioRecorder?
+    private var generation = 0
 
     func start() async throws -> Date {
         cancel()
-
+        let token = generation
         let granted = await AVAudioApplication.requestRecordPermission()
+        guard token == generation, !Task.isCancelled else { throw CancellationError() }
         guard granted else { throw WatchAudioMemoError.microphoneDenied }
 
         let url = FileManager.default.temporaryDirectory
@@ -64,6 +66,7 @@ final class WatchAudioMemoService {
     }
 
     func cancel() {
+        generation += 1
         guard let recorder else { return }
         recorder.stop()
         try? FileManager.default.removeItem(at: recorder.url)

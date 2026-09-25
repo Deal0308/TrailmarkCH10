@@ -31,7 +31,7 @@ struct JournalMediaDetailView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 24))
                     }
                 } else if let error = viewModel.errorMessage {
-                    TrailmarkEmptyState(title: "Playback needs a moment.", message: error, systemImage: "play.slash")
+                    TrailmarkEmptyState(title: "Playback unavailable.", message: error, systemImage: "play.slash")
                     Button("Retry playback", systemImage: "arrow.clockwise") { Task { await viewModel.load() } }
                         .buttonStyle(TrailmarkPrimaryButtonStyle())
                 } else {
@@ -42,7 +42,12 @@ struct JournalMediaDetailView: View {
 
                 VStack(alignment: .leading, spacing: 14) {
                     Text("The details").font(.title3.weight(.semibold))
-                    if viewModel.item.isImported == true {
+                    if viewModel.item.isWatchMemo {
+                        Label("Recorded on Apple Watch", systemImage: "applewatch")
+                            .font(.subheadline)
+                        Text("Date shown is when you recorded it. This copy is saved on your iPhone.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    } else if viewModel.item.isImported == true {
                         Label("Imported from your library", systemImage: "photo.on.rectangle")
                             .font(.subheadline)
                         Text("Date shown is the import date. This clip has no inferred capture location.")
@@ -85,7 +90,14 @@ struct JournalMediaDetailView: View {
         }
         .confirmationDialog("Delete this memo and its file?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete memo", role: .destructive) { Task { await viewModel.delete() } }
+            Button("Keep memo", role: .cancel) {}
+        } message: {
+            Text("This cannot be undone. A copy already saved on Apple Watch stays there.")
         }
+        .safeAreaInset(edge: .bottom) {
+            if viewModel.isDeleting { ProgressView("Deleting memo…").frame(maxWidth: .infinity).padding().background(.regularMaterial) }
+        }
+        .trailmarkErrorFeedback(viewModel.errorMessage)
         .task { await viewModel.load() }
         .onChange(of: viewModel.deleted) { _, deleted in if deleted { dismiss() } }
         .onDisappear { viewModel.pause() }

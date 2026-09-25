@@ -65,11 +65,11 @@ Voice Memos has no Health dependency. Launching the watch app, opening Vitals, o
 
 Denied microphone access displays a short Settings-oriented explanation. A failed save retains the completed temporary recording and offers **Retry Save** or **Discard**. Missing files and playback failures produce an error instead of a false playing state. Moving away from an active app stops and saves the short recording; leaving playback pauses it. An available zero-length result is rejected rather than indexed as a valid memo.
 
-The iPhone and Apple Watch have separate app containers. They reuse the exact package model and store implementation, but this assignment does not add cross-device file transfer. A watch recording remains in the watch store unless a later assignment adds WatchConnectivity or cloud synchronization.
+The original Wrist Memo assignment used separate app containers and the same package model/store. The subsequent [Pocket Sync assignment](PocketSyncAssignment.md) now transfers the audio file to the paired iPhone; each device keeps its own copy. The latest polish adds per-memo transfer status and confirmed deletion from watch detail.
 
 ## Reflection: what I deliberately left out
 
-I deliberately left **video capture, camera preview, Photos import, thumbnails, waveform rendering, scrubbing, geotag details, journey controls, metadata editing, and an exposed delete control** out of the watch capture interface. Those features are useful in the iPhone Field Journal, where the larger display supports previewing media and inspecting context. On a wrist they would crowd the primary task and make the most important controls harder to hit.
+I deliberately left **video capture, camera preview, Photos import, thumbnails, waveform rendering, scrubbing, geotag details, journey controls, and metadata editing** out of the watch capture interface. Those features are useful in the iPhone Field Journal, where the larger display supports previewing media and inspecting context. On a wrist they would crowd the primary task and make the most important controls harder to hit. The later integration adds sync and deletion inside memo detail, keeping the capture screen focused. Deletion requires confirmation and removes only the watch's journal copy.
 
 The watch experience therefore answers only three immediate questions: **Am I recording? Did it save? Can I play it?** Recording uses one large button, saved rows show only date and duration, and playback uses one Play/Pause button with simple progress. A 60-second cap and compressed mono audio also limit watch storage use. Detailed review and richer media management remain appropriate for the iPhone.
 

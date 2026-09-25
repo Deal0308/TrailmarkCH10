@@ -7,6 +7,7 @@ struct JournalCaptureView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
     @State private var confirmingCancel = false
+    @State private var showingHelp = false
 
     var body: some View {
         @Bindable var binding = viewModel
@@ -75,6 +76,8 @@ struct JournalCaptureView: View {
                     if let error = viewModel.errorMessage {
                         TrailmarkNotice(title: "Let's keep your memo safe", message: error,
                                         systemImage: "exclamationmark.triangle", tint: TrailmarkTheme.clay)
+                        Button("Recording & permission help", systemImage: "questionmark.circle") { showingHelp = true }
+                            .buttonStyle(TrailmarkSecondaryButtonStyle())
                     }
                     DisclosureGroup("Journey & recording details") {
                         Text(viewModel.associationMessage)
@@ -112,11 +115,14 @@ struct JournalCaptureView: View {
             }
             .confirmationDialog("Discard this unsaved recording?", isPresented: $confirmingCancel, titleVisibility: .visible) {
                 Button("Discard recording", role: .destructive) { viewModel.cancel(); dismiss() }
+                Button("Keep recording", role: .cancel) {}
             }
             .interactiveDismissDisabled(viewModel.phase != .idle && !viewModel.saved)
             .onChange(of: viewModel.saved) { _, saved in if saved { dismiss() } }
+            .trailmarkErrorFeedback(viewModel.errorMessage)
             .onChange(of: scenePhase) { _, phase in if phase == .background { viewModel.suspend() } }
             .onDisappear { viewModel.cancel() }
+            .sheet(isPresented: $showingHelp) { TrailmarkHelpView() }
         }
     }
 

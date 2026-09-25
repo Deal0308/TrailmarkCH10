@@ -62,7 +62,8 @@ public struct Journey: Identifiable, Codable, Equatable, Sendable {
 
     public var duration: TimeInterval { max(0, (endDate ?? Date()).timeIntervalSince(startDate)) }
     public var durationText: String {
-        let seconds = Int(duration)
+        let seconds = Int(min(duration, Double(Int.max / 2)))
+        if seconds < 3600 { return String(format: "%dm %02ds", seconds / 60, seconds % 60) }
         return String(format: "%dh %02dm", seconds / 3600, (seconds % 3600) / 60)
     }
     public var distanceText: String { "\((distanceMeters / 1000).formatted(.number.precision(.fractionLength(2)))) km" }

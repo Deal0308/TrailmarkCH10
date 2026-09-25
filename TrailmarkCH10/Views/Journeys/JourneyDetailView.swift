@@ -6,6 +6,7 @@ struct JourneyDetailView: View {
     @State private var showingRecorder = false
     @State private var selectedMemo: JournalMedia?
     @State private var confirmingFinish = false
+    @State private var showingHelp = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -15,6 +16,12 @@ struct JourneyDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         journeyHeader(journey)
+                        if let feedback = viewModel.feedback, !viewModel.isActive {
+                            TrailmarkFeedback(feedback) { viewModel.dismissFeedback() }
+                        }
+                        if let feedback = viewModel.journal?.feedback {
+                            TrailmarkFeedback(feedback) { viewModel.journal?.dismissFeedback() }
+                        }
                         routeCard(journey)
                         if journey.watchActivity == nil {
                             if dynamicTypeSize.isAccessibilitySize {
@@ -37,6 +44,8 @@ struct JourneyDetailView: View {
                                     .buttonStyle(TrailmarkSecondaryButtonStyle())
                             }
                             TrailmarkNotice(title: "Along the way", message: viewModel.routeMessage, systemImage: "location")
+                            Button("Route & location help", systemImage: "questionmark.circle") { showingHelp = true }
+                                .buttonStyle(TrailmarkSecondaryButtonStyle())
                         }
                         if let error = viewModel.routeError {
                             TrailmarkNotice(title: "Route update", message: error,
@@ -59,6 +68,9 @@ struct JourneyDetailView: View {
         .trailmarkScreen()
         .navigationTitle("Journey")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingHelp) { TrailmarkHelpView() }
+        .sensoryFeedback(.success, trigger: viewModel.journal?.feedback?.id) { _, next in next != nil }
+        .sensoryFeedback(.success, trigger: viewModel.feedback?.id) { _, next in next != nil }
         .task { await viewModel.refreshHealth() }
         .refreshable { await viewModel.refreshHealth() }
         .sheet(isPresented: $showingRecorder) {
@@ -114,7 +126,7 @@ struct JourneyDetailView: View {
                 TrailmarkEmptyState(
                     title: journey.watchActivity == nil ? "Room for a route." : "Activity recorded on your wrist.",
                     message: journey.watchActivity == nil
-                        ? "Accurate location updates will bring your path into view. Health and memos are available here even without a route."
+                        ? (viewModel.isActive ? "Waiting for accurate location updates. Health and memos are available here even without a route." : "No route was recorded for this journey. Your saved activity and memos remain available below.")
                         : "Pocket Sync transfers the completed activity record and attached memos. This watch workout did not include route points.",
                     systemImage: journey.watchActivity == nil ? "location.slash" : "applewatch"
                 )
@@ -139,25 +151,14 @@ struct JourneyDetailView: View {
             Text("Recorded on Apple Watch and delivered with Pocket Sync.")
                 .font(.caption).foregroundStyle(.secondary)
             VStack(spacing: 16) {
-                HStack {
-                    Label("Active duration", systemImage: "clock")
-                    Spacer()
-                    Text(activity.durationText).fontWeight(.semibold).monospacedDigit()
+                ViewThatFits(in: .horizontal) {
+                    HStack { Label("Active duration", systemImage: "clock"); Spacer(); Text(activity.durationText).fontWeight(.semibold).monospacedDigit() }
+                    VStack(alignment: .leading, spacing: 6) { Label("Active duration", systemImage: "clock"); Text(activity.durationText).fontWeight(.semibold).monospacedDigit() }
                 }
                 Divider()
-                HStack {
-                    Label("Average heart rate", systemImage: "heart.fill")
-                    Spacer()
-                    Text(activity.averageHeartRateBPM.map { "\($0.formatted(.number.precision(.fractionLength(0)))) BPM" } ?? "Unavailable")
-                        .fontWeight(.semibold).monospacedDigit()
-                }
+                metric("Average heart rate", value: activity.averageHeartRateBPM, unit: "BPM", systemImage: "heart.fill")
                 Divider()
-                HStack {
-                    Label("Workout energy", systemImage: "flame.fill")
-                    Spacer()
-                    Text(activity.activeEnergyKilocalories.map { "\($0.formatted(.number.precision(.fractionLength(0)))) kcal" } ?? "Unavailable")
-                        .fontWeight(.semibold).monospacedDigit()
-                }
+                metric("Workout energy", value: activity.activeEnergyKilocalories, unit: "kcal", systemImage: "flame.fill")
             }
             .font(.subheadline)
         }
@@ -231,16 +232,19 @@ struct JourneyDetailView: View {
     }
 
     private func metric(_ title: String, value: Double?, unit: String, systemImage: String, decimals: Int = 0) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let formatted = value.map { "\($0.formatted(.number.precision(.fractionLength(decimals)))) \(unit)" } ?? "Unavailable"
+        return ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Label(title, systemImage: systemImage).font(.subheadline)
+                Label(title, systemImage: systemImage)
                 Spacer(minLength: 8)
-                Text(value.map { "\($0.formatted(.number.precision(.fractionLength(decimals)))) \(unit)" } ?? "Unavailable")
-                    .font(.subheadline.weight(.semibold)).monospacedDigit()
-                    .foregroundStyle(value == nil ? TrailmarkTheme.secondaryInk(for: colorScheme) : TrailmarkTheme.ink(for: colorScheme))
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(formatted).fontWeight(.semibold).monospacedDigit()
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Label(title, systemImage: systemImage)
+                Text(formatted).fontWeight(.semibold).monospacedDigit()
             }
         }
+        .font(.subheadline)
         .accessibilityElement(children: .combine)
     }
 

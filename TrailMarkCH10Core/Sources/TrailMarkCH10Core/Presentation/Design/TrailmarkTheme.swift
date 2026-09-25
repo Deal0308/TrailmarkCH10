@@ -152,7 +152,9 @@ public struct TrailmarkMetricTile: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .trailmarkCard()
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(value.contains("—") ? "Unavailable" : [value, unit].compactMap { $0 }.joined(separator: " "))
     }
 }
 
@@ -272,11 +274,13 @@ private struct TrailmarkCardModifier: ViewModifier {
 
 private struct TrailmarkScreenModifier: ViewModifier {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func body(content: Content) -> some View {
         content
             .foregroundStyle(TrailmarkTheme.ink(for: scheme))
             .background(TrailmarkTheme.background(for: scheme).ignoresSafeArea())
             .tint(TrailmarkTheme.accent(for: scheme))
+            .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
     }
 }
 

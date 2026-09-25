@@ -9,6 +9,7 @@ public final class TodayViewModel {
     public private(set) var isLoading = false
     public private(set) var errorMessage: String?
     public private(set) var hasCompletedInitialLoad = false
+    public private(set) var showingPreviousReadings = false
     @ObservationIgnored private let service: any ActivityHealthProviding
 
     public init(service: (any ActivityHealthProviding)? = nil) {
@@ -21,7 +22,7 @@ public final class TodayViewModel {
     }
 
     public func loadInitialData() async {
-        guard !hasCompletedInitialLoad else { return }
+        guard !hasCompletedInitialLoad || metrics.map({ !Calendar.current.isDateInToday($0.queriedAt) }) == true else { return }
         await refreshToday()
     }
 
@@ -36,10 +37,17 @@ public final class TodayViewModel {
             let range = TodayDateRangeProvider.range()
             let result = try await service.readActivity(from: range.startDate, to: range.endDate)
             metrics = result
+            showingPreviousReadings = false
             activitySummary = ActivitySummary(steps: Int((result.steps ?? 0).rounded()), distanceMeters: result.distanceMeters ?? 0, activeEnergyKilocalories: result.activeEnergyKilocalories ?? 0, hydrationMilliliters: result.hydrationMilliliters ?? 0, date: range.endDate)
         } catch {
-            metrics = nil
-            activitySummary = .empty
+            // Keep same-day readings useful during a failed refresh, clearly marked stale.
+            if let metrics, Calendar.current.isDateInToday(metrics.queriedAt) {
+                showingPreviousReadings = true
+            } else {
+                metrics = nil
+                activitySummary = .empty
+                showingPreviousReadings = false
+            }
             errorMessage = error.localizedDescription
         }
     }

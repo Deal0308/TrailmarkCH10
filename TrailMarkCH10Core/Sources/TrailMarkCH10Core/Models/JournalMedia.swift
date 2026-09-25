@@ -17,6 +17,7 @@ public struct JournalMedia: Identifiable, Codable, Equatable, Sendable {
     public let isImported: Bool?
     public let journeyID: UUID?
     public let coordinate: GeoPoint?
+    public let capturedOnWatch: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -26,7 +27,8 @@ public struct JournalMedia: Identifiable, Codable, Equatable, Sendable {
         relativeFilename: String,
         journeyID: UUID? = nil,
         coordinate: GeoPoint? = nil,
-        isImported: Bool = false
+        isImported: Bool = false,
+        capturedOnWatch: Bool = false
     ) {
         self.id = id
         self.type = type
@@ -36,7 +38,10 @@ public struct JournalMedia: Identifiable, Codable, Equatable, Sendable {
         self.journeyID = journeyID
         self.coordinate = coordinate
         self.isImported = isImported
+        self.capturedOnWatch = capturedOnWatch
     }
+
+    public var isWatchMemo: Bool { capturedOnWatch == true || (isImported == true && type == .audio) }
 
     public var durationText: String {
         guard duration.isFinite, duration >= 0 else { return "Unavailable" }

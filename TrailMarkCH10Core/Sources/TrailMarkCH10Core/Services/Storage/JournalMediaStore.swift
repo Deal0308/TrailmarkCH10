@@ -60,7 +60,7 @@ public final class JournalMediaStore: @unchecked Sendable {
     }
 
     @discardableResult
-    public func importMedia(from sourceURL: URL, id: UUID = UUID(), type: JournalMediaType, date: Date = Date(), duration: TimeInterval, journeyID: UUID? = nil, coordinate: GeoPoint? = nil, isImported: Bool = false) throws -> JournalMedia {
+    public func importMedia(from sourceURL: URL, id: UUID = UUID(), type: JournalMediaType, date: Date = Date(), duration: TimeInterval, journeyID: UUID? = nil, coordinate: GeoPoint? = nil, isImported: Bool = false, capturedOnWatch: Bool = false) throws -> JournalMedia {
         lock.lock(); defer { lock.unlock() }
         guard duration.isFinite, duration > 0 else { throw StoreError.invalidDuration }
         guard fileManager.fileExists(atPath: sourceURL.path) else { throw StoreError.sourceFileMissing }
@@ -70,7 +70,7 @@ public final class JournalMediaStore: @unchecked Sendable {
         guard Self.isSafe(filename) else { throw StoreError.invalidRelativeFilename }
         let destination = directoryURL.appendingPathComponent(filename)
         try fileManager.copyItem(at: sourceURL, to: destination)
-        let item = JournalMedia(id: id, type: type, date: date, duration: duration, relativeFilename: filename, journeyID: journeyID, coordinate: coordinate, isImported: isImported)
+        let item = JournalMedia(id: id, type: type, date: date, duration: duration, relativeFilename: filename, journeyID: journeyID, coordinate: coordinate, isImported: isImported, capturedOnWatch: capturedOnWatch)
         do { try persist(items + [item]) }
         catch { try? fileManager.removeItem(at: destination); throw error }
         items.append(item)

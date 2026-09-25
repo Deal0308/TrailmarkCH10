@@ -5,8 +5,10 @@ struct FieldJournalView: View {
     let viewModel: JournalViewModel
     @State private var showingRecorder = false
     @State private var showingLibrary = false
+    @State private var deletingMemo: JournalMedia?
 
     var body: some View {
+        @Bindable var binding = viewModel
         NavigationStack {
             List {
                 VStack(alignment: .leading, spacing: 22) {
@@ -15,6 +17,9 @@ struct FieldJournalView: View {
                         title: "Field journal.",
                         subtitle: "A voice, a view, a moment worth keeping."
                     )
+                    if let feedback = viewModel.feedback {
+                        TrailmarkFeedback(feedback) { viewModel.dismissFeedback() }
+                    }
                     captureCard
                     if let title = viewModel.activeJourneyTitle {
                         VStack(alignment: .leading, spacing: 10) {
@@ -61,7 +66,11 @@ struct FieldJournalView: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
 
-                ForEach(viewModel.items) { item in
+                if !viewModel.items.isEmpty && viewModel.filteredItems.isEmpty {
+                    ContentUnavailableView.search(text: viewModel.searchText)
+                        .listRowBackground(Color.clear)
+                }
+                ForEach(viewModel.filteredItems) { item in
                     NavigationLink {
                         JournalMediaDetailView(viewModel: viewModel.makeDetailViewModel(item: item))
                     } label: {
@@ -71,10 +80,13 @@ struct FieldJournalView: View {
                     .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
-                }
-                .onDelete { offsets in
-                    let items = offsets.map { viewModel.items[$0] }
-                    Task { for item in items { _ = await viewModel.delete(item) } }
+                    .disabled(viewModel.deletingIDs.contains(item.id))
+                    .overlay {
+                        if viewModel.deletingIDs.contains(item.id) { ProgressView("Deleting…").padding().background(.regularMaterial, in: Capsule()) }
+                    }
+                    .swipeActions(allowsFullSwipe: false) {
+                        Button("Delete", systemImage: "trash", role: .destructive) { deletingMemo = item }
+                    }
                 }
             }
             .listStyle(.plain)
@@ -82,6 +94,20 @@ struct FieldJournalView: View {
             .trailmarkScreen()
             .navigationTitle("Journal")
             .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $binding.searchText, prompt: "Voice, video, watch, or date")
+            .sensoryFeedback(.success, trigger: viewModel.feedback?.id) { _, next in next != nil }
+            .trailmarkErrorFeedback(viewModel.errorMessage)
+            .confirmationDialog("Delete this memo from iPhone?", isPresented: Binding(get: { deletingMemo != nil }, set: { if !$0 { deletingMemo = nil } }), titleVisibility: .visible) {
+                if let item = deletingMemo {
+                    Button("Delete memo", role: .destructive) {
+                        deletingMemo = nil
+                        Task { _ = await viewModel.delete(item) }
+                    }
+                }
+                Button("Keep memo", role: .cancel) { deletingMemo = nil }
+            } message: {
+                Text("This removes the recording and its file from this iPhone. It cannot be undone. A copy on Apple Watch stays there.")
+            }
             .toolbar {
                 Menu {
                     Button("Record a memo", systemImage: "mic.fill") { showingRecorder = true }
@@ -163,7 +189,8 @@ struct JournalMediaRow: View {
                     .font(.caption).foregroundStyle(.secondary)
                 HStack(spacing: 6) {
                     Text(item.durationText).monospacedDigit()
-                    if item.isImported == true { Text("· Imported") }
+                    if item.isWatchMemo { Text("· Apple Watch") }
+                    else if item.isImported == true { Text("· Imported") }
                 }
                 .font(.caption.weight(.medium)).foregroundStyle(.secondary)
                 if item.journeyID != nil {

@@ -6,6 +6,8 @@ struct TodayDashboardView: View {
     let viewModel: TodayViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var showingHelp = false
     @ScaledMetric(relativeTo: .largeTitle) private var stepSize: CGFloat = 58
 
     var body: some View {
@@ -39,6 +41,10 @@ struct TodayDashboardView: View {
             .navigationTitle("Trailmark")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Trailmark help", systemImage: "questionmark.circle") { showingHelp = true }
+                        .frame(minWidth: 44, minHeight: 44)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Refresh Health", systemImage: "arrow.clockwise") {
                         Task { await viewModel.refreshToday() }
@@ -47,6 +53,11 @@ struct TodayDashboardView: View {
                 }
             }
             .task { await viewModel.loadInitialData() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await viewModel.loadInitialData() } }
+            }
+            .sheet(isPresented: $showingHelp) { TrailmarkHelpView() }
+            .trailmarkErrorFeedback(viewModel.errorMessage)
             .refreshable { await viewModel.refreshToday() }
         }
     }
@@ -156,6 +167,7 @@ struct TodayDashboardView: View {
                 TrailmarkNotice(title: "Health is taking a moment", message: error, systemImage: "heart.slash", tint: TrailmarkTheme.clay)
                 Button("Try again", systemImage: "arrow.clockwise") { Task { await viewModel.retry() } }
                     .buttonStyle(TrailmarkSecondaryButtonStyle())
+                if viewModel.showingPreviousReadings { Text("Showing the last available readings for today.").font(.caption).foregroundStyle(.secondary) }
             }
         } else if viewModel.hasCompletedInitialLoad && !viewModel.hasReadableData {
             VStack(alignment: .leading, spacing: 14) {
@@ -171,6 +183,8 @@ struct TodayDashboardView: View {
                         .padding(.top, 8)
                 }
                 .font(.footnote.weight(.medium))
+                Button("Health & permission help", systemImage: "questionmark.circle") { showingHelp = true }
+                    .buttonStyle(TrailmarkSecondaryButtonStyle())
             }
         }
     }
@@ -178,7 +192,7 @@ struct TodayDashboardView: View {
     private var heroStatus: String {
         if viewModel.isLoading { return "Reading Apple Health…" }
         if let date = viewModel.metrics?.queriedAt {
-            return "Updated \(date.formatted(date: .omitted, time: .shortened))"
+            return "\(viewModel.showingPreviousReadings ? "Last successful read" : "Updated") \(date.formatted(date: .omitted, time: .shortened))"
         }
         return "Measurements appear when available"
     }

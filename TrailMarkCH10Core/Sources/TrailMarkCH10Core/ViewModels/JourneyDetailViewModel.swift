@@ -19,6 +19,8 @@ public final class JourneyDetailViewModel {
     public var routeMessage: String { journeys.location.message }
     public var routeError: String? { journeys.errorMessage }
     public var memosWithoutPins: Int { memos.filter { $0.coordinate == nil }.count }
+    public var feedback: UserFeedback? { journeys.feedback }
+    public func dismissFeedback() { journeys.dismissFeedback() }
     public func refreshHealth() async { await journeys.refreshHealth(id: journeyID) }
     public func finish() async { await journeys.finish() }
 }

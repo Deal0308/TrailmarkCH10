@@ -29,6 +29,7 @@ public struct WatchActivityRecord: Identifiable, Codable, Equatable, Sendable {
 
     public var durationText: String {
         let seconds = Int(min(duration.rounded(), Double(Int.max / 2)))
+        if seconds < 3600 { return String(format: "%dm %02ds", seconds / 60, seconds % 60) }
         return String(format: "%dh %02dm", seconds / 3600, (seconds % 3600) / 60)
     }
 
@@ -53,6 +54,11 @@ public struct PocketSyncSummary: Codable, Equatable, Sendable {
         self.activityDate = activityDate
         self.duration = duration.isFinite ? max(0, duration) : 0
         self.updatedAt = updatedAt
+    }
+
+    public var durationText: String {
+        let seconds = Int(min(max(0, duration.isFinite ? duration : 0).rounded(), Double(Int.max / 2)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
 

@@ -23,6 +23,7 @@ struct WatchLiveVitalsView: View {
             .onChange(of: isSelected) { _, _ in synchronizeUpdates() }
         }
         .preferredColorScheme(.dark)
+        .trailmarkErrorFeedback(viewModel.errorMessage)
     }
 
     private var content: some View {

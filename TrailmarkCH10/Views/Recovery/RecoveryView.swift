@@ -7,6 +7,8 @@ struct RecoveryView: View {
     let viewModel: RecoveryViewModel
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var scheme
+    @State private var showingHelp = false
+    @State private var confirmingSample = false
     @ScaledMetric(relativeTo: .largeTitle) private var sleepSize: CGFloat = 48
 
     var body: some View {
@@ -35,6 +37,15 @@ struct RecoveryView: View {
                 }
             }
             .task { await viewModel.load() }
+            .sensoryFeedback(.success, trigger: viewModel.savedWorkout?.id) { _, next in next != nil }
+            .sheet(isPresented: $showingHelp) { TrailmarkHelpView() }
+            .trailmarkErrorFeedback(viewModel.authorizationErrorMessage ?? viewModel.sleepErrorMessage ?? viewModel.energyErrorMessage ?? viewModel.workoutErrorMessage)
+            .confirmationDialog("Add sample data to Apple Health?", isPresented: $confirmingSample, titleVisibility: .visible) {
+                Button("Save synthetic sample") { Task { await viewModel.saveSampleWorkout() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This adds a demonstration walk with 120 kcal, 1.5 km, and 128 BPM. These are sample values and will affect your Health totals.")
+            }
             .refreshable { await viewModel.refresh() }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active && viewModel.hasLoaded { Task { await viewModel.refresh() } }
@@ -76,6 +87,8 @@ struct RecoveryView: View {
                 Text("No readable sleep samples yet. They may still be syncing, unrecorded, or not shared.")
                     .font(.footnote)
                     .foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
+                Button("Health & permission help", systemImage: "questionmark.circle") { showingHelp = true }
+                    .buttonStyle(TrailmarkSecondaryButtonStyle())
             }
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: 10) {
@@ -216,7 +229,7 @@ struct RecoveryView: View {
                 Text("For the course demonstration. Saving adds these synthetic values to Apple Health and can affect your Health totals.")
                     .font(.footnote).foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
                 Button {
-                    Task { await viewModel.saveSampleWorkout() }
+                    confirmingSample = true
                 } label: {
                     if viewModel.isSavingWorkout {
                         HStack { ProgressView(); Text("Saving to Health…") }

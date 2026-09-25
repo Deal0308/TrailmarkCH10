@@ -4,7 +4,9 @@ import TrailMarkCH10Core
 /// Capture comes first; a short, quiet list keeps saved recordings within reach.
 struct WatchMemoListView: View {
     let viewModel: WatchMemoViewModel
+    let isSelected: Bool
     @Environment(\.scenePhase) private var scenePhase
+    @State private var confirmingDiscard = false
 
     var body: some View {
         NavigationStack {
@@ -17,6 +19,11 @@ struct WatchMemoListView: View {
                             .foregroundStyle(WatchDesign.muted)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
+                        if viewModel.isRecording {
+                            Text("Up to 60 seconds · saves when you leave")
+                                .font(.caption2).foregroundStyle(WatchDesign.muted)
+                                .multilineTextAlignment(.center)
+                        }
                     }
 
                     if let error = viewModel.errorMessage {
@@ -32,6 +39,12 @@ struct WatchMemoListView: View {
                     }
 
                     savedMemos
+                    if let syncMessage = viewModel.syncMessage {
+                        Text(syncMessage).font(.caption2).foregroundStyle(WatchDesign.muted)
+                            .multilineTextAlignment(.center)
+                        Button("Check Sync", systemImage: "arrow.triangle.2.circlepath") { viewModel.retrySync() }
+                            .buttonStyle(WatchActionStyle(prominent: false))
+                    }
                 }
                 .padding(.horizontal, 7)
                 .padding(.bottom, 10)
@@ -39,11 +52,24 @@ struct WatchMemoListView: View {
             .background(WatchDesign.background)
             .navigationTitle("Memos")
             .onChange(of: scenePhase) { _, phase in
-                if phase != .active, viewModel.isRecording {
-                    Task { await viewModel.stopAndSave() }
+                if phase != .active { viewModel.pausePlayback() }
+                if phase == .background {
+                    Task { await viewModel.leaveCapture() }
                 } else if phase == .active {
                     viewModel.reload()
                 }
+            }
+            .onChange(of: isSelected) { _, selected in
+                if !selected {
+                    Task { await viewModel.leaveCapture() }
+                }
+            }
+            .sensoryFeedback(.start, trigger: viewModel.isRecording) { _, next in next }
+            .sensoryFeedback(.success, trigger: viewModel.feedback?.id) { _, next in next != nil }
+            .trailmarkErrorFeedback(viewModel.errorMessage)
+            .confirmationDialog("Discard this recording?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+                Button("Discard", role: .destructive) { viewModel.cancelRecording() }
+                Button("Keep Recording", role: .cancel) {}
             }
         }
         .preferredColorScheme(.dark)
@@ -82,7 +108,7 @@ struct WatchMemoListView: View {
                     Task { await viewModel.retrySaving() }
                 }
                 .buttonStyle(WatchActionStyle(tint: WatchDesign.coral))
-                Button("Discard", role: .destructive) { viewModel.cancelRecording() }
+                Button("Discard", role: .destructive) { confirmingDiscard = true }
                     .buttonStyle(WatchActionStyle(tint: WatchDesign.coral, prominent: false))
             }
 
@@ -129,9 +155,10 @@ struct WatchMemoListView: View {
                         NavigationLink {
                             WatchMemoPlaybackView(item: item, viewModel: viewModel)
                         } label: {
-                            WatchMemoRow(item: item)
+                            WatchMemoRow(item: item, syncState: viewModel.transferState(for: item))
                         }
                         .buttonStyle(.plain)
+                        .disabled(viewModel.isRecording || viewModel.isSaving || viewModel.phase == .preparing)
                     }
                 }
             }
@@ -141,6 +168,8 @@ struct WatchMemoListView: View {
 
 private struct WatchMemoRow: View {
     let item: JournalMedia
+    let syncState: PocketTransferState?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(spacing: 8) {
@@ -160,8 +189,12 @@ private struct WatchMemoRow: View {
                 }
                 .font(.caption2)
                 .foregroundStyle(WatchDesign.muted)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                if let syncState {
+                    Text(syncState.label).font(.caption2)
+                        .foregroundStyle(syncState == .failed ? WatchDesign.coral : WatchDesign.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 0)
             Image(systemName: "chevron.right")
@@ -176,13 +209,15 @@ private struct WatchMemoRow: View {
         .contentShape(RoundedRectangle(cornerRadius: 16))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Voice memo, \(item.date.formatted(date: .abbreviated, time: .shortened))")
-        .accessibilityValue(item.durationText)
+        .accessibilityValue("\(item.durationText). \(syncState?.label ?? "Saved on this watch")")
     }
 }
 
 private struct WatchMemoPlaybackView: View {
     let item: JournalMedia
     let viewModel: WatchMemoViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmingDelete = false
 
     private var isSelected: Bool { viewModel.playingItemID == item.id }
     private var state: AudioPlaybackState {
@@ -222,10 +257,23 @@ private struct WatchMemoPlaybackView: View {
                 }
                 .buttonStyle(WatchActionStyle(tint: WatchDesign.coral))
 
-                Button("Sync to iPhone", systemImage: "iphone.and.arrow.forward") {
+                Text(viewModel.transferState(for: item)?.label ?? "Saved on this watch")
+                    .font(.caption2).foregroundStyle(WatchDesign.muted)
+                    .multilineTextAlignment(.center)
+                Button(viewModel.transferState(for: item) == .failed ? "Retry Sync" : viewModel.transferState(for: item) == .transferred ? "Send Again" : "Sync to iPhone", systemImage: "iphone.and.arrow.forward") {
                     viewModel.syncToPhone(item)
                 }
                 .buttonStyle(WatchActionStyle(tint: WatchDesign.accent, prominent: false))
+                .disabled(viewModel.transferState(for: item) == .queued)
+                if viewModel.transferState(for: item) == .queued {
+                    Text("Delivery may take time. Your memo is saved on this watch.")
+                        .font(.caption2).foregroundStyle(WatchDesign.muted).multilineTextAlignment(.center)
+                }
+
+                Button("Delete from Watch", systemImage: "trash", role: .destructive) { confirmingDelete = true }
+                    .buttonStyle(WatchActionStyle(tint: WatchDesign.coral, prominent: false))
+                    .disabled(viewModel.deletingIDs.contains(item.id))
+                if viewModel.deletingIDs.contains(item.id) { ProgressView("Deleting…") }
 
                 if let error = viewModel.errorMessage {
                     Text(error)
@@ -241,5 +289,16 @@ private struct WatchMemoPlaybackView: View {
         .navigationTitle("Trail note")
         .task { viewModel.preparePlayback(for: item) }
         .onDisappear { viewModel.pausePlayback() }
+        .confirmationDialog("Delete this memo from Apple Watch?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete Memo", role: .destructive) {
+                Task {
+                    await viewModel.delete(item)
+                    if !viewModel.items.contains(where: { $0.id == item.id }) { dismiss() }
+                }
+            }
+            Button("Keep Memo", role: .cancel) {}
+        } message: {
+            Text("This cannot be undone. Copies sent or queued for iPhone stay there.")
+        }
     }
 }

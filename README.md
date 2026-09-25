@@ -12,6 +12,12 @@ See [Assignment and reference-app alignment](docs/AssignmentAlignment.md) for th
 
 ## Visual direction
 
+### Interaction polish
+
+The current build adds dismissible save/delete confirmations, VoiceOver announcements, event-based haptics, search in Journal and Journeys, confirmation before deleting a memo or ending a workout, and a **Trailmark help** button on Today. Help explains permissions, watch navigation, local storage, and sync, with a direct link to the app's Settings. Reduced Motion disables presentation animations; larger text can wrap into stacked metric layouts. [User experience review](docs/UserExperienceReview.md) records what was changed and which device checks remain.
+
+Pocket Sync shows queued, transferred, and failed memo states on Apple Watch. **From your Apple Watch** in iPhone Journeys exposes status and retry controls. Queued activities and memo metadata are persisted before transfer, and received files are retained until their local import succeeds. “Transferred” confirms transport completion; “saved on this iPhone” is shown only after local persistence succeeds.
+
 The iPhone uses warm cream surfaces, evergreen feature panels, serif section headings, clear numeric metrics, and restrained trail-contour artwork. Dark appearance adapts the palette. The watch carries the same identity onto a black canvas with compact metrics, lime actions, and focused pages. Decorative contours never stand in for recorded routes or sensor data.
 
 `Presentation/Design/TrailmarkTheme.swift` supplies shared colors, typography, cards, and controls; watch-only `Views/Components/WatchDesign.swift` adapts that presentation to the wrist. The original peak-and-trail app icon has matching phone/watch artwork plus iOS dark and tinted variants; its editable source is [trailmark-mark.svg](docs/design/trailmark-mark.svg). All features continue to use the existing models and services. Larger-text layout fallbacks and accessibility labels are implemented; current visual/device verification remains pending.
@@ -48,6 +54,7 @@ TrailMarkCH10Core/Sources/TrailMarkCH10Core/
     Media/                        # recording, playback, thumbnails, selected-video staging
     Motion/                       # Core Motion sampling, rolling RMS, movement heuristic
     Connectivity/                 # WCSession activation, queued activity/summary/file transfer
+    Permissions/                  # system Settings navigation
     Storage/                      # relative media paths and atomic JSON stores
   ViewModels/                     # observable screen state and user-action orchestration
   Presentation/                   # iOS camera, player, map and picker rendering adapters
@@ -73,7 +80,7 @@ No app view imports HealthKit, CoreMotion, CoreLocation, AVFoundation, AVKit, Ph
 - **Watch Voice Memos:** swipe from Wrist Home to Voice Memos, tap **Record Memo**, then **Stop & Save**. The watch lists date and duration and provides focused Play/Pause detail. Recordings use mono AAC and stop automatically at 60 seconds to limit watch storage.
 - **Watch Live Vitals:** choose **Enable Health** on a physical watch to observe today's cumulative steps/active energy and the latest readable heart rate. During an explicitly started Trailmark workout, the screen also consumes the existing builder's heart-rate stream, using the actual measurement time and identifying the source. Daily totals stay separate from workout-only energy. Opening this page never starts a workout or permission request automatically.
 - **Watch Motion:** swipe to Motion and tap **Start** on a physical watch. The display shows Still/Moving and gravity-free movement strength in g, using a one-second rolling RMS and two thresholds to reduce flicker. Sampling requests 10 Hz; the display updates at most twice per second. Tap **Stop**, leave the page, or make the app inactive to stop sampling. No Health connection is needed.
-- **Pocket Sync:** finishing a watch workout queues an activity record for the iPhone Journey list. Saving a watch voice memo queues its `.m4a` file and metadata for the same Journey; the watch memo detail can retry the transfer. The latest replaceable summary uses application context, each completed activity uses user info, and audio uses file transfer. See the [assignment reflection](docs/PocketSyncAssignment.md).
+- **Pocket Sync:** finishing a watch workout queues an activity record for the iPhone Journey list. Saving a watch voice memo queues its `.m4a` file and metadata. Its journey association is captured at recording start when a workout is active or was completed within the last 12 hours; other memos stay in Journal. The watch memo detail can retry transfers. The latest replaceable summary uses application context, each completed activity uses user info, and audio uses file transfer. See the [assignment reflection](docs/PocketSyncAssignment.md).
 
 ## Persistence and permissions
 
@@ -104,7 +111,7 @@ The [Wrist home assignment and reflection](docs/WatchHomeAssignment.md) document
 
 Assignment 2 extends the same watch target and shared package. A second focused watch page records a voice memo, persists its relative file and metadata with `JournalMediaStore`, lists saved audio, and plays it through the package-owned audio service. `WatchMemoViewModel` owns capture, retry, storage, and playback state; the watch views remain free of AVFoundation and file operations.
 
-The watch deliberately omits iPhone video capture/import, thumbnails, waveform scrubbing, geotag details, journey controls, metadata editing, and an exposed delete control. This keeps Record/Stop, saved date/duration, and Play/Pause usable at wrist size. See [Wrist memo assignment and reflection](docs/WatchMemoAssignment.md) for the rubric mapping, MVVM file map, limitations, and physical-watch demo sequence.
+The watch deliberately omits iPhone video capture/import, thumbnails, waveform scrubbing, geotag details, journey controls, and metadata editing. Its capture screen keeps Record/Stop and saved date/duration in focus. Memo detail now includes Play/Pause, sync status/retry, and a confirmed **Delete from Watch** action for storage management. Deletion on one device does not delete copies on the other. See [Wrist memo assignment and reflection](docs/WatchMemoAssignment.md) for the original rubric mapping and reflection.
 
 ## Watch assignment: Live vitals
 

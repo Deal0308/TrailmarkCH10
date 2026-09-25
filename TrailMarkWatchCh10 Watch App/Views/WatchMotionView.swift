@@ -25,6 +25,8 @@ struct WatchMotionView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sensoryFeedback(.start, trigger: viewModel.isRunning) { _, next in next }
+        .sensoryFeedback(.stop, trigger: viewModel.isRunning) { previous, next in previous && !next }
     }
 
     private var content: some View {

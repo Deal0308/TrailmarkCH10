@@ -9,14 +9,17 @@ final class AppModel {
     let todayViewModel = TodayViewModel()
     let recoveryViewModel = RecoveryViewModel()
     let workoutViewModel = WorkoutViewModel()
-    let pocketSyncService = PocketSyncService()
+    private let pocketSyncService: PocketSyncService
+    let pocketSyncViewModel: PocketSyncViewModel
     private(set) var journalViewModel: JournalViewModel?
     private(set) var journeysViewModel: JourneysViewModel?
     private(set) var journalStorageError: String?
     private(set) var journeyStorageError: String?
-    @ObservationIgnored private var pendingPocketMemos: [IncomingPocketMemo] = []
 
     init() {
+        let sync = PocketSyncService()
+        pocketSyncService = sync
+        pocketSyncViewModel = PocketSyncViewModel(service: sync)
         prepareStorage()
         configurePocketSync()
         pocketSyncService.activate()
@@ -35,21 +38,21 @@ final class AppModel {
             } catch { journalStorageError = "The journal could not open local storage. Existing files were preserved. \(error.localizedDescription)" }
         }
         journalViewModel?.connect(journeys: journeysViewModel)
-        importPendingPocketMemos()
+    }
+
+    func retryStorage() {
+        prepareStorage()
+        pocketSyncService.retry()
     }
 
     private func configurePocketSync() {
         pocketSyncService.configureReceiving(
             activity: { [weak self] record in
-                self?.journeysViewModel?.importWatchActivity(record)
+                self?.journeysViewModel?.importWatchActivity(record) ?? false
             },
             memo: { [weak self] memo in
-                guard let self else { return }
-                if let journalViewModel {
-                    Task { await journalViewModel.importPocketMemo(memo) }
-                } else {
-                    pendingPocketMemos.append(memo)
-                }
+                guard let journal = self?.journalViewModel else { return false }
+                return await journal.importPocketMemo(memo)
             },
             summary: { [weak self] summary in
                 self?.journeysViewModel?.receivePocketSyncSummary(summary)
@@ -57,12 +60,4 @@ final class AppModel {
         )
     }
 
-    private func importPendingPocketMemos() {
-        guard let journalViewModel, !pendingPocketMemos.isEmpty else { return }
-        let pending = pendingPocketMemos
-        pendingPocketMemos.removeAll()
-        Task {
-            for memo in pending { await journalViewModel.importPocketMemo(memo) }
-        }
-    }
 }

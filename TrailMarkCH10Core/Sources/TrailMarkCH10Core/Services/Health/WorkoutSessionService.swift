@@ -8,6 +8,7 @@ import HealthKit
 public final class WorkoutSessionService: NSObject {
     public var onMetrics: ((WorkoutMetrics) -> Void)?
     public var onError: ((String) -> Void)?
+    public var onCommandPending: ((Bool) -> Void)?
 
     private let healthStore: HKHealthStore?
     private var session: HKWorkoutSession?
@@ -19,6 +20,8 @@ public final class WorkoutSessionService: NSObject {
     private var elapsedUpdates: Task<Void, Never>?
     #elseif os(iOS)
     private var connectionWatchdog: Task<Void, Never>?
+    private var commandWatchdog: Task<Void, Never>?
+    private var pendingCommand: WorkoutRemoteCommand?
     #endif
 
     public override init() {
@@ -41,7 +44,7 @@ public final class WorkoutSessionService: NSObject {
     }
 
     public func start() async {
-        guard !metrics.isActive else { return }
+        guard !metrics.isActive, metrics.state != .requestingAuthorization else { return }
         guard let healthStore else {
             fail("Workout sensors require an Apple Watch with Health available. You can return and use the other pages.")
             return
@@ -85,10 +88,10 @@ public final class WorkoutSessionService: NSObject {
 
     public func end() {
         guard metrics.isActive, metrics.state != .ending else { return }
-        update(state: .ending, message: "Finishing workout…")
         #if os(iOS)
         send(command: .end)
         #else
+        update(state: .ending, message: "Finishing workout…")
         session?.end()
         #endif
     }
@@ -107,6 +110,7 @@ public final class WorkoutSessionService: NSObject {
         #elseif os(iOS)
         connectionWatchdog?.cancel()
         connectionWatchdog = nil
+        clearPendingCommand()
         #endif
         metrics = WorkoutMetrics(state: .requestingAuthorization, statusMessage: message)
         onMetrics?(metrics)
@@ -141,6 +145,13 @@ public final class WorkoutSessionService: NSObject {
     private func accept(_ received: WorkoutMetrics) {
         metrics = received
         onMetrics?(received)
+        #if os(iOS)
+        let confirmed = (pendingCommand == .pause && received.state == .paused)
+            || (pendingCommand == .resume && received.state == .running)
+            || (pendingCommand == .end && (received.state == .ending || received.state == .completed))
+            || received.state == .failed
+        if confirmed { clearPendingCommand() }
+        #endif
     }
 
     private func fail(_ message: String) {
@@ -150,6 +161,7 @@ public final class WorkoutSessionService: NSObject {
         #elseif os(iOS)
         connectionWatchdog?.cancel()
         connectionWatchdog = nil
+        clearPendingCommand()
         #endif
         metrics = WorkoutMetrics(
             state: .failed,
@@ -163,6 +175,9 @@ public final class WorkoutSessionService: NSObject {
         )
         onMetrics?(metrics)
         onError?(message)
+        #if os(watchOS)
+        sendMetricsToPhone()
+        #endif
     }
 
     private static func message(for error: Error) -> String {
@@ -234,11 +249,18 @@ public final class WorkoutSessionService: NSObject {
         elapsedUpdates = nil
         do {
             try await builder.endCollection(at: date)
-            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HKWorkout?, Error>) in
+            let savedWorkout = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HKWorkout?, Error>) in
                 builder.finishWorkout { workout, error in
                     if let error { continuation.resume(throwing: error) }
                     else { continuation.resume(returning: workout) }
                 }
+            }
+            guard savedWorkout != nil else {
+                fail("Health did not confirm the workout save. Check Apple Health before recording another session.")
+                session = nil
+                self.builder = nil
+                isFinishing = false
+                return
             }
             refreshStatistics(Set([HKQuantityType(.heartRate), HKQuantityType(.activeEnergyBurned)]))
             update(state: .completed, elapsedTime: builder.elapsedTime,
@@ -250,7 +272,7 @@ public final class WorkoutSessionService: NSObject {
     }
 
     private func sendMetricsToPhone() {
-        guard session?.state == .running || session?.state == .paused || metrics.state == .completed,
+        guard session?.state == .running || session?.state == .paused || metrics.state == .completed || metrics.state == .failed,
               let data = try? JSONEncoder().encode(WorkoutRemoteMessage(metrics: metrics)) else { return }
         session?.sendToRemoteWorkoutSession(data: data) { _, _ in }
     }
@@ -279,17 +301,34 @@ public final class WorkoutSessionService: NSObject {
     }
 
     private func send(command: WorkoutRemoteCommand) {
+        guard pendingCommand == nil else { return }
         guard let session, let data = try? JSONEncoder().encode(WorkoutRemoteMessage(command: command)) else {
             onError?("Apple Watch is disconnected. The workout may still be running on your watch; reconnect and try the control again.")
             return
         }
+        pendingCommand = command
+        onCommandPending?(true)
+        commandWatchdog = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(10)) } catch { return }
+            guard let self, pendingCommand != nil else { return }
+            clearPendingCommand()
+            onError?("Apple Watch has not confirmed the action. Check your watch before trying again; the workout may still be running.")
+        }
         session.sendToRemoteWorkoutSession(data: data) { [weak self] success, error in
             if !success {
                 Task { @MainActor [weak self] in
+                    self?.clearPendingCommand()
                     self?.onError?(error?.localizedDescription ?? "The workout command did not reach Apple Watch.")
                 }
             }
         }
+    }
+
+    private func clearPendingCommand() {
+        pendingCommand = nil
+        commandWatchdog?.cancel()
+        commandWatchdog = nil
+        onCommandPending?(false)
     }
 
     private func startConnectionWatchdog() {

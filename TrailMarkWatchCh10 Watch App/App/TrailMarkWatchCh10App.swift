@@ -12,6 +12,8 @@ struct TrailMarkWatchCh10_Watch_AppApp: App {
     @State private var motionViewModel = MotionViewModel()
     @State private var selectedPage: WatchPage = .home
     private let pocketSyncService: PocketSyncService
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // Wrist Home and Live Vitals share one package-owned HealthKit manager.
@@ -36,7 +38,7 @@ struct TrailMarkWatchCh10_Watch_AppApp: App {
                     isSelected: selectedPage == .home
                 )
                     .tag(WatchPage.home)
-                WatchMemoListView(viewModel: memoViewModel)
+                WatchMemoListView(viewModel: memoViewModel, isSelected: selectedPage == .memos)
                     .tag(WatchPage.memos)
                 WatchLiveVitalsView(
                     viewModel: liveVitalsViewModel,
@@ -47,6 +49,10 @@ struct TrailMarkWatchCh10_Watch_AppApp: App {
                     .tag(WatchPage.motion)
             }
             .tabViewStyle(.verticalPage)
+            .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { pocketSyncService.retry() }
+            }
         }
     }
 }

@@ -6,6 +6,7 @@ struct WatchWorkoutView: View {
     let viewModel: WorkoutViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .largeTitle) private var heartRateSize: CGFloat = 36
+    @State private var confirmingEnd = false
 
     var body: some View {
         ScrollView {
@@ -65,6 +66,8 @@ struct WatchWorkoutView: View {
                         .font(.caption2)
                         .foregroundStyle(WatchDesign.accent)
                         .multilineTextAlignment(.center)
+                    Button("Check Sync", systemImage: "arrow.triangle.2.circlepath") { viewModel.retrySync() }
+                        .buttonStyle(WatchActionStyle(prominent: false))
                 }
             }
             .padding(.horizontal, 7)
@@ -73,6 +76,12 @@ struct WatchWorkoutView: View {
         .background(WatchDesign.background)
         .navigationTitle("Walking")
         .preferredColorScheme(.dark)
+        .confirmationDialog("Finish this workout?", isPresented: $confirmingEnd, titleVisibility: .visible) {
+            Button("Finish & Save") { viewModel.end() }
+            Button("Keep Going", role: .cancel) {}
+        }
+        .sensoryFeedback(.success, trigger: viewModel.metrics.state) { _, next in next == .completed }
+        .trailmarkErrorFeedback(viewModel.errorMessage)
     }
 
     @ViewBuilder private var controls: some View {
@@ -124,7 +133,7 @@ struct WatchWorkoutView: View {
         .buttonStyle(WatchActionStyle())
         .accessibilityLabel(viewModel.metrics.state == .paused ? "Resume workout" : "Pause workout")
 
-        Button(role: .destructive) { viewModel.end() } label: {
+        Button(role: .destructive) { confirmingEnd = true } label: {
             VStack(spacing: 3) {
                 Image(systemName: "stop.fill")
                 Text("End").font(.caption2.weight(.semibold))

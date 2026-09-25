@@ -7,6 +7,7 @@ struct WorkoutView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .largeTitle) private var heartRateSize: CGFloat = 48
+    @State private var confirmingEnd = false
 
     var body: some View {
         NavigationStack {
@@ -24,7 +25,7 @@ struct WorkoutView: View {
                             .foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
                             .padding(.top, 10)
                     } label: {
-                        Label("Connected to your wrist", systemImage: "applewatch")
+                        Label("How watch workouts work", systemImage: "applewatch")
                             .font(.subheadline.weight(.medium))
                     }
                     .trailmarkCard()
@@ -50,6 +51,14 @@ struct WorkoutView: View {
             }
             .navigationTitle("Workout")
             .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog("Finish this workout?", isPresented: $confirmingEnd, titleVisibility: .visible) {
+                Button("Finish & save workout") { viewModel.end() }
+                Button("Keep going", role: .cancel) {}
+            } message: {
+                Text("Apple Watch will end this session and save it to Health.")
+            }
+            .sensoryFeedback(.success, trigger: viewModel.metrics.state) { _, next in next == .completed }
+            .trailmarkErrorFeedback(viewModel.errorMessage)
         }
     }
 
@@ -123,7 +132,9 @@ struct WorkoutView: View {
     }
 
     @ViewBuilder private var controls: some View {
-        if viewModel.metrics.state == .running || viewModel.metrics.state == .paused {
+        if viewModel.isSendingCommand {
+            ProgressView("Waiting for Apple Watch…").frame(maxWidth: .infinity, minHeight: 52)
+        } else if viewModel.metrics.state == .running || viewModel.metrics.state == .paused {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(spacing: 10) { activeControls }
             } else {
@@ -153,7 +164,7 @@ struct WorkoutView: View {
             viewModel.pauseOrResume()
         }
         .buttonStyle(TrailmarkPrimaryButtonStyle())
-        Button("End workout", systemImage: "stop.fill", role: .destructive) { viewModel.end() }
+        Button("End workout", systemImage: "stop.fill", role: .destructive) { confirmingEnd = true }
             .buttonStyle(TrailmarkSecondaryButtonStyle())
     }
 

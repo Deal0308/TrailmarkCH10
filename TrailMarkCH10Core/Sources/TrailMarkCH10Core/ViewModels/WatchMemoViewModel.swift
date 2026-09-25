@@ -14,6 +14,8 @@ public final class WatchMemoViewModel {
     public private(set) var playbackState = AudioPlaybackState()
     public private(set) var errorMessage: String?
     public private(set) var statusMessage = "Record a short trail note."
+    public private(set) var feedback: UserFeedback?
+    public private(set) var deletingIDs: Set<UUID> = []
 
     public let maximumDuration: TimeInterval = 60
 
@@ -24,6 +26,7 @@ public final class WatchMemoViewModel {
     @ObservationIgnored private var playbackUpdates: Task<Void, Never>?
     @ObservationIgnored private var pendingCapture: CapturedMedia?
     @ObservationIgnored private let pocketSync: PocketSyncService?
+    @ObservationIgnored private var recordingJourneyID: UUID?
 
     public init(store: JournalMediaStore? = nil, pocketSync: PocketSyncService? = nil) {
         self.pocketSync = pocketSync
@@ -41,6 +44,9 @@ public final class WatchMemoViewModel {
     public var isSaving: Bool { phase == .finishing }
     public var hasPendingCapture: Bool { pendingCapture != nil }
     public var isStorageAvailable: Bool { store != nil }
+    public var syncMessage: String? { pocketSync?.errorMessage ?? pocketSync?.statusMessage }
+    public func transferState(for item: JournalMedia) -> PocketTransferState? { pocketSync?.memoStates[item.id] }
+    public func retrySync() { pocketSync?.retry() }
 
     public func retryStorage() {
         guard store == nil else { reload(); return }
@@ -55,7 +61,7 @@ public final class WatchMemoViewModel {
     }
 
     public func startRecording() async {
-        guard phase == .idle || phase == .failed else { return }
+        guard (phase == .idle || phase == .failed), pendingCapture == nil else { return }
         guard store != nil else { retryStorage(); return }
         discardPendingCapture()
         pausePlayback()
@@ -65,6 +71,7 @@ public final class WatchMemoViewModel {
 
         do {
             recordingStartedAt = try await recorder.start()
+            recordingJourneyID = pocketSync?.memoJourneyID
             phase = .recording
             statusMessage = "Recording on Apple Watch"
             recordingLimitTask?.cancel()
@@ -73,6 +80,10 @@ public final class WatchMemoViewModel {
                 catch { return }
                 await self?.stopAndSave()
             }
+        } catch is CancellationError {
+            phase = .idle
+            recordingStartedAt = nil
+            statusMessage = "Recording cancelled. Tap Record Memo when ready."
         } catch {
             phase = .failed
             recordingStartedAt = nil
@@ -121,6 +132,12 @@ public final class WatchMemoViewModel {
         phase = .idle
         errorMessage = nil
         statusMessage = "Recording discarded."
+    }
+
+    public func leaveCapture() async {
+        pausePlayback()
+        if phase == .recording { await stopAndSave() }
+        else if phase == .preparing { recorder.cancel() }
     }
 
     public func preparePlayback(for item: JournalMedia) {
@@ -182,6 +199,8 @@ public final class WatchMemoViewModel {
 
     public func delete(_ item: JournalMedia) async {
         guard let store else { return }
+        guard deletingIDs.insert(item.id).inserted else { return }
+        defer { deletingIDs.remove(item.id) }
         if playingItemID == item.id {
             pausePlayback()
             player.stop()
@@ -192,6 +211,7 @@ public final class WatchMemoViewModel {
             try await Task.detached(priority: .userInitiated) { try store.delete(item) }.value
             errorMessage = nil
             statusMessage = "Memo deleted."
+            feedback = UserFeedback("Memo deleted", message: "Removed from this watch. Copies already sent to iPhone are kept there.")
             reload()
         } catch {
             errorMessage = "Memo deletion could not finish: \(error.localizedDescription)"
@@ -221,12 +241,15 @@ public final class WatchMemoViewModel {
         guard let capture = pendingCapture else { throw WatchMemoViewModelError.recordingUnavailable }
         guard let store else { throw WatchMemoViewModelError.storageUnavailable }
         let capturedAt = recordingStartedAt ?? Date()
+        let journeyID = recordingJourneyID
         let item = try await Task.detached(priority: .userInitiated) {
             try store.importMedia(
                 from: capture.url,
                 type: .audio,
                 date: capturedAt,
-                duration: capture.duration
+                duration: capture.duration,
+                journeyID: journeyID,
+                capturedOnWatch: true
             )
         }.value
         MediaFileService.removeTemporaryFile(capture.url)
@@ -234,6 +257,7 @@ public final class WatchMemoViewModel {
         recordingStartedAt = nil
         phase = .idle
         errorMessage = nil
+        feedback = UserFeedback("Voice memo saved", message: "Ready to play on this watch.")
         if let pocketSync {
             do {
                 try pocketSync.queueMemo(fileURL: store.fileURL(for: item), item: item)

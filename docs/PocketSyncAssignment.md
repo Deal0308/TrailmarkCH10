@@ -13,6 +13,14 @@ Pocket Sync extends the same `TrailmarkCH10.xcodeproj`, watch target, and `Trail
 
 The iPhone Journey list identifies imported records with **Synced from Watch**. Journey detail shows the transferred duration, average heart rate, active energy, and any associated voice memo. The memo uses the existing iPhone playback screen.
 
+### Reliability and feedback refinement
+
+The interaction polish pass adds `PocketSyncArchive` for atomic on-disk manifests, `PocketSyncViewModel` for presentation, a sync status/retry disclosure in iPhone Journeys, and per-memo queued/transferred/failed labels on watch. Activity and memo queues reload after activation or relaunch. Files received by WatchConnectivity are copied synchronously with metadata before its temporary URL expires; iPhone retries failed imports and cleans staging files only after a successful import. Duplicate IDs do not create duplicate records. Watch workout totals remain separate from iPhone Health queries.
+
+“Transferred to iPhone” reflects WatchConnectivity's transport callback, not a claim that the iPhone successfully indexed the item. The iPhone reports its own successful save or retryable import error. A live-message reachability change is not reported as “offline,” because queued background delivery has different requirements. Watch memo journey IDs are captured at recording start and saved in the shared media model, so a delayed save/retry cannot reassign a recording to a newer workout.
+
+Apple requires file-transfer verification on a paired iPhone and Apple Watch; the simulator does not deliver the file-receipt delegate callback. See [Apple's file receipt documentation](https://developer.apple.com/documentation/watchconnectivity/wcsessiondelegate/session(_:didreceive:)).
+
 ## Transfer choices and reflection
 
 ### Latest summary — `updateApplicationContext`

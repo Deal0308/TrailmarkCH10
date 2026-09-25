@@ -18,7 +18,7 @@ struct ContentView: View {
             WorkoutView(viewModel: appModel.workoutViewModel)
                 .tabItem { Label("Workout", systemImage: "figure.walk") }
             Group {
-                if let journeys = appModel.journeysViewModel { JourneysView(viewModel: journeys, journal: appModel.journalViewModel) }
+                if let journeys = appModel.journeysViewModel { JourneysView(viewModel: journeys, journal: appModel.journalViewModel, sync: appModel.pocketSyncViewModel) }
                 else { storageProblem("Journeys", message: appModel.journeyStorageError) }
             }.tabItem { Label("Journeys", systemImage: "map") }
         }
@@ -26,7 +26,10 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             // Permission sheets cause .inactive; only a real background transition pauses routes.
             if phase == .background { appModel.journeysViewModel?.setForeground(false) }
-            if phase == .active { appModel.journeysViewModel?.setForeground(true) }
+            if phase == .active {
+                appModel.journeysViewModel?.setForeground(true)
+                appModel.pocketSyncViewModel.retry()
+            }
         }
     }
     private func storageProblem(_ title: String, message: String?) -> some View {
@@ -34,7 +37,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     TrailmarkEmptyState(title: "Let’s try that again", message: message ?? "This feature’s storage couldn’t be opened.", systemImage: "externaldrive.badge.exclamationmark")
-                    Button("Retry storage", systemImage: "arrow.clockwise") { appModel.prepareStorage() }
+                    Button("Retry storage", systemImage: "arrow.clockwise") { appModel.retryStorage() }
                         .buttonStyle(TrailmarkPrimaryButtonStyle())
                 }
                 .padding(24)

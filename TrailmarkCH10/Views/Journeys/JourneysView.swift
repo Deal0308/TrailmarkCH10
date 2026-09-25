@@ -4,11 +4,13 @@ import TrailMarkCH10Core
 struct JourneysView: View {
     let viewModel: JourneysViewModel
     let journal: JournalViewModel?
+    let sync: PocketSyncViewModel
     @State private var showingStart = false
     @State private var title = ""
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        @Bindable var binding = viewModel
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {
@@ -17,17 +19,14 @@ struct JourneysView: View {
                         title: "Your journeys.",
                         subtitle: "Routes, memories, and movement. Together."
                     )
+                    if let feedback = viewModel.feedback {
+                        TrailmarkFeedback(feedback) { viewModel.dismissFeedback() }
+                    }
                     if let error = viewModel.errorMessage {
                         TrailmarkNotice(title: "A journey update", message: error,
                                         systemImage: "exclamationmark.triangle", tint: TrailmarkTheme.clay)
                     }
-                    if let summary = viewModel.latestPocketSyncSummary {
-                        TrailmarkNotice(
-                            title: "Pocket Sync",
-                            message: "Latest watch activity: \(summary.activityDate.formatted(date: .abbreviated, time: .shortened)) · \(durationText(summary.duration)). Background delivery does not require both apps to stay open.",
-                            systemImage: "applewatch"
-                        )
-                    }
+                    PocketSyncCard(viewModel: sync)
 
                     if let active = viewModel.activeJourney {
                         activeJourneyCard(active)
@@ -45,9 +44,11 @@ struct JourneysView: View {
                         startCard
                     }
 
-                    let saved = viewModel.journeys.filter { $0.id != viewModel.activeJourney?.id }
+                    let saved = viewModel.savedJourneys
                     if saved.isEmpty {
-                        if viewModel.activeJourney == nil {
+                        if !viewModel.searchText.isEmpty {
+                            ContentUnavailableView.search(text: viewModel.searchText)
+                        } else if viewModel.activeJourney == nil {
                             TrailmarkEmptyState(
                                 title: "The next chapter is outside.",
                                 message: "Start a journey and your route, field memos, and Health summary will come together here.",
@@ -69,6 +70,9 @@ struct JourneysView: View {
             .trailmarkScreen()
             .navigationTitle("Journeys")
             .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $binding.searchText, prompt: "Journey name or date")
+            .sensoryFeedback(.success, trigger: viewModel.feedback?.id) { _, next in next != nil }
+            .trailmarkErrorFeedback(viewModel.errorMessage)
             .toolbar {
                 Button { beginNamingJourney() } label: {
                     Image(systemName: "plus").frame(minWidth: 44, minHeight: 44)
@@ -182,11 +186,6 @@ struct JourneysView: View {
                        tint: journey.status == .interrupted ? TrailmarkTheme.clay : nil)
     }
 
-    private func durationText(_ duration: TimeInterval) -> String {
-        let seconds = Int(max(0, duration).rounded())
-        return String(format: "%d:%02d", seconds / 60, seconds % 60)
-    }
-
     private var newJourneySheet: some View {
         NavigationStack {
             ScrollView {
@@ -199,16 +198,20 @@ struct JourneysView: View {
                             .font(.system(.title2, design: .serif))
                             .frame(minHeight: 52)
                             .accessibilityLabel("Journey name")
+                            .submitLabel(.go)
+                            .onSubmit { if viewModel.start(title: title) { showingStart = false } }
                     }
                     .trailmarkCard()
                     TrailmarkNotice(title: "Location is your choice",
                                     message: "Your memos and journey can still be saved when location is unavailable.",
                                     systemImage: "location")
                     Button("Start recording journey", systemImage: "location.fill") {
-                        viewModel.start(title: title)
-                        showingStart = false
+                        if viewModel.start(title: title) { showingStart = false }
                     }
                     .buttonStyle(TrailmarkPrimaryButtonStyle())
+                    if let error = viewModel.errorMessage {
+                        TrailmarkNotice(title: "Journey could not start", message: error, systemImage: "exclamationmark.triangle", tint: TrailmarkTheme.clay)
+                    }
                     DisclosureGroup("Location & privacy") {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Trailmark requests location while you use the app. Route points and memo locations are stored on this iPhone.")
@@ -234,6 +237,7 @@ struct JourneysView: View {
 
     private func beginNamingJourney() {
         title = ""
+        viewModel.clearError()
         showingStart = true
     }
 }

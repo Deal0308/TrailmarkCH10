@@ -3,51 +3,39 @@ import Foundation
 import Observation
 @preconcurrency import WatchConnectivity
 
-/// Owns WatchConnectivity activation and transport selection for both apps.
-/// Views never import WatchConnectivity; they consume state exposed by package view models.
+/// Transport and retry live in the package. Delivery to the counterpart and a
+/// successful import into its local store are deliberately different outcomes.
 @MainActor
 @Observable
 public final class PocketSyncService: NSObject {
     public private(set) var isActivated = false
     public private(set) var isReachable = false
-    public private(set) var statusMessage = "Pocket Sync is preparing."
+    public private(set) var statusMessage = "Preparing Pocket Sync…"
+    public private(set) var errorMessage: String?
+    public private(set) var isWorking = false
     public private(set) var lastReceivedSummary: PocketSyncSummary?
+    public private(set) var memoStates: [UUID: PocketTransferState] = [:]
+    public private(set) var pendingCount = 0
 
-    @ObservationIgnored private let session: WCSession
-    @ObservationIgnored private var activityReceiver: ((WatchActivityRecord) -> Void)?
-    @ObservationIgnored private var memoReceiver: ((IncomingPocketMemo) -> Void)?
+    @ObservationIgnored private let session = WCSession.default
+    @ObservationIgnored private var activityReceiver: ((WatchActivityRecord) -> Bool)?
+    @ObservationIgnored private var memoReceiver: ((IncomingPocketMemo) async -> Bool)?
     @ObservationIgnored private var summaryReceiver: ((PocketSyncSummary) -> Void)?
-
-    #if os(watchOS)
+    @ObservationIgnored private var importing = false
+    @ObservationIgnored private var importAgain = false
     @ObservationIgnored private var activityID: UUID?
     @ObservationIgnored private var activityStartedAt: Date?
-    @ObservationIgnored private var lastCompletedActivityID: UUID?
-    @ObservationIgnored private var lastCompletedActivityDate: Date?
+    @ObservationIgnored private var activityEndedAt: Date?
     @ObservationIgnored private var lastWorkoutState: WorkoutTrackingState = .idle
-    @ObservationIgnored private var pendingActivities: [WatchActivityRecord] = []
-    @ObservationIgnored private var pendingSummaries: [PocketSyncSummary] = []
-    @ObservationIgnored private var pendingMemoFiles: [(URL, PocketMemoMetadata)] = []
-    #endif
 
     public override init() {
-        session = .default
         super.init()
-        #if os(watchOS)
-        let savedDate = UserDefaults.standard.object(forKey: Self.lastActivityDateKey) as? Date
-        if let savedID = UserDefaults.standard.string(forKey: Self.lastActivityIDKey),
-           let savedDate,
-           Date().timeIntervalSince(savedDate) < Self.memoAssociationWindow {
-            lastCompletedActivityID = UUID(uuidString: savedID)
-            lastCompletedActivityDate = savedDate
-        }
-        #endif
         session.delegate = self
     }
 
-    /// The iPhone composition root installs package-owned import handlers before activation.
     public func configureReceiving(
-        activity: @escaping (WatchActivityRecord) -> Void,
-        memo: @escaping (IncomingPocketMemo) -> Void,
+        activity: @escaping (WatchActivityRecord) -> Bool,
+        memo: @escaping (IncomingPocketMemo) async -> Bool,
         summary: @escaping (PocketSyncSummary) -> Void
     ) {
         activityReceiver = activity
@@ -60,125 +48,151 @@ public final class PocketSyncService: NSObject {
             statusMessage = "Pocket Sync is unavailable on this device."
             return
         }
-        session.activate()
-        statusMessage = "Activating Pocket Sync…"
+        if session.activationState == .activated { didActivate(error: nil) }
+        else {
+            statusMessage = "Connecting to Pocket Sync…"
+            session.activate()
+        }
+    }
+
+    public func retry() {
+        guard !isWorking else { return }
+        errorMessage = nil
+        activate()
     }
 
     #if os(watchOS)
-    /// Receives the shared workout model and queues exactly one durable activity record
-    /// when a workout reaches `.completed`.
+    /// Capture association at recording start; a delayed save cannot attach a memo
+    /// to a different workout that began while it was waiting.
+    public var memoJourneyID: UUID? {
+        if let activityID { return activityID }
+        guard let date = UserDefaults.standard.object(forKey: Self.lastActivityDateKey) as? Date,
+              (0...(12 * 60 * 60)).contains(Date().timeIntervalSince(date)),
+              let value = UserDefaults.standard.string(forKey: Self.lastActivityIDKey) else { return nil }
+        return UUID(uuidString: value)
+    }
+
     public func observeWorkout(_ metrics: WorkoutMetrics) {
         if metrics.isActive, activityID == nil {
             activityID = UUID()
             activityStartedAt = metrics.startedAt ?? Date()
+            activityEndedAt = nil
         }
-        if let startedAt = metrics.startedAt { activityStartedAt = startedAt }
-
+        if let start = metrics.startedAt { activityStartedAt = start }
+        if metrics.state == .ending, activityEndedAt == nil { activityEndedAt = Date() }
         if metrics.state == .completed, lastWorkoutState != .completed {
-            let id = activityID ?? UUID()
-            let start = metrics.startedAt ?? activityStartedAt ?? Date().addingTimeInterval(-metrics.elapsedTime)
-            let end = Date()
             let record = WatchActivityRecord(
-                id: id,
-                startDate: start,
-                endDate: end,
-                duration: metrics.elapsedTime,
+                id: activityID ?? UUID(), startDate: metrics.startedAt ?? activityStartedAt ?? Date(),
+                endDate: activityEndedAt ?? Date(), duration: metrics.elapsedTime,
                 averageHeartRateBPM: metrics.averageHeartRateBPM,
                 activeEnergyKilocalories: metrics.activeEnergyKilocalories
             )
-            pendingActivities.append(record)
-            let summary = PocketSyncSummary(activityID: id, activityDate: start, duration: metrics.elapsedTime)
-            pendingSummaries = [summary]
-            lastCompletedActivityID = id
-            lastCompletedActivityDate = end
-            UserDefaults.standard.set(id.uuidString, forKey: Self.lastActivityIDKey)
-            UserDefaults.standard.set(end, forKey: Self.lastActivityDateKey)
+            do {
+                try PocketSyncArchive.save(record, direction: .outgoing)
+                let summary = PocketSyncSummary(activityID: record.id, activityDate: record.startDate, duration: record.duration)
+                UserDefaults.standard.set(try JSONEncoder().encode(summary), forKey: Self.summaryKey)
+                UserDefaults.standard.set(record.id.uuidString, forKey: Self.lastActivityIDKey)
+                UserDefaults.standard.set(record.endDate, forKey: Self.lastActivityDateKey)
+                flushOutgoing()
+            } catch { report("Workout saved in Health. Pocket Sync could not queue its copy: \(error.localizedDescription)") }
             activityID = nil
-            activityStartedAt = nil
-            flushPendingTransfers()
         } else if metrics.state == .failed || metrics.state == .idle {
             activityID = nil
-            activityStartedAt = nil
         }
         lastWorkoutState = metrics.state
     }
 
-    /// Copies the memo to an outbox before handing it to WatchConnectivity, so
-    /// deleting the watch's local journal item cannot invalidate an in-flight transfer.
     public func queueMemo(fileURL: URL, item: JournalMedia) throws {
-        let metadata = PocketMemoMetadata(
-            mediaID: item.id,
-            date: item.date,
-            duration: item.duration,
-            journeyID: item.journeyID ?? activityID ?? recentCompletedActivityID
-        )
-        let staged = try Self.stageOutgoingFile(from: fileURL)
-        pendingMemoFiles.append((staged, metadata))
-        flushPendingTransfers()
-    }
-
-    private var recentCompletedActivityID: UUID? {
-        guard let lastCompletedActivityID, let lastCompletedActivityDate,
-              Date().timeIntervalSince(lastCompletedActivityDate) < Self.memoAssociationWindow else { return nil }
-        return lastCompletedActivityID
-    }
-
-    private func flushPendingTransfers() {
-        guard session.activationState == .activated else {
-            statusMessage = "Saved on Apple Watch · waiting for Pocket Sync"
-            return
-        }
-
-        for activity in pendingActivities {
-            guard let data = try? JSONEncoder().encode(activity) else { continue }
-            session.transferUserInfo([Self.activityKey: data])
-        }
-        pendingActivities.removeAll()
-
-        if let summary = pendingSummaries.last,
-           let data = try? JSONEncoder().encode(summary) {
-            do {
-                try session.updateApplicationContext([Self.summaryKey: data])
-                pendingSummaries.removeAll()
-            } catch {
-                statusMessage = "Activity saved · latest summary will retry when Trailmark reopens"
+        // Repeated taps never create another in-flight copy or change its Journey ID.
+        var pending = try PocketSyncArchive.memos(.outgoing)
+        for memo in pending where memo.metadata.mediaID == item.id {
+            let url = try PocketSyncArchive.fileURL(memo, direction: .outgoing)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try PocketSyncArchive.removeMemo(memo, direction: .outgoing)
             }
         }
-
-        for (url, metadata) in pendingMemoFiles {
-            guard let data = try? JSONEncoder().encode(metadata) else { continue }
-            session.transferFile(url, metadata: [Self.memoKey: data])
+        pending = try PocketSyncArchive.memos(.outgoing)
+        if !pending.contains(where: { $0.metadata.mediaID == item.id }) {
+            let metadata = PocketMemoMetadata(mediaID: item.id, date: item.date, duration: item.duration, journeyID: item.journeyID)
+            _ = try PocketSyncArchive.stage(fileURL, metadata: metadata, direction: .outgoing)
         }
-        pendingMemoFiles.removeAll()
-        statusMessage = "Queued for iPhone · delivery continues in the background"
+        memoStates[item.id] = .queued
+        errorMessage = nil
+        flushOutgoing()
+    }
+
+    private func flushOutgoing() {
+        do {
+            let activities = try PocketSyncArchive.activities(.outgoing)
+            let memos = try PocketSyncArchive.memos(.outgoing)
+            pendingCount = activities.count + memos.count
+            for memo in memos where memoStates[memo.metadata.mediaID] != .failed { memoStates[memo.metadata.mediaID] = .queued }
+            guard isActivated else {
+                statusMessage = pendingCount > 0 ? "Saved on watch · waiting to connect" : "Connecting to iPhone…"
+                return
+            }
+            guard session.isCompanionAppInstalled else {
+                statusMessage = "Install Trailmark on your paired iPhone to sync. Your recordings stay on this watch."
+                return
+            }
+            let activityIDs = Set(session.outstandingUserInfoTransfers.compactMap {
+                ($0.userInfo[Self.activityKey] as? Data).flatMap { try? JSONDecoder().decode(WatchActivityRecord.self, from: $0).id }
+            })
+            let memoIDs = Set(session.outstandingFileTransfers.compactMap {
+                ($0.file.metadata?[Self.memoKey] as? Data).flatMap { try? JSONDecoder().decode(PocketMemoMetadata.self, from: $0).mediaID }
+            })
+            for activity in activities where !activityIDs.contains(activity.id) {
+                session.transferUserInfo([Self.activityKey: try JSONEncoder().encode(activity)])
+            }
+            for memo in memos where !memoIDs.contains(memo.metadata.mediaID) {
+                let url = try PocketSyncArchive.fileURL(memo, direction: .outgoing)
+                guard FileManager.default.fileExists(atPath: url.path) else {
+                    memoStates[memo.metadata.mediaID] = .failed
+                    report("A queued memo file is missing. Open the saved memo and send it again.")
+                    continue
+                }
+                session.transferFile(url, metadata: [Self.memoKey: try JSONEncoder().encode(memo.metadata)])
+                memoStates[memo.metadata.mediaID] = .queued
+            }
+            if let summary = UserDefaults.standard.data(forKey: Self.summaryKey) {
+                try session.updateApplicationContext([Self.summaryKey: summary])
+            }
+            statusMessage = pendingCount > 0 ? "\(pendingCount) item(s) queued · delivery may take a little time" : "Ready to sync with iPhone"
+        } catch { report("Sync is waiting for another try. \(error.localizedDescription)") }
     }
     #endif
 
     private func didActivate(error: Error?) {
         isActivated = error == nil && session.activationState == .activated
         isReachable = session.isReachable
-        if let error {
-            statusMessage = "Pocket Sync could not activate: \(error.localizedDescription)"
-        } else {
-            statusMessage = "Pocket Sync active · background delivery ready"
-            #if os(watchOS)
-            flushPendingTransfers()
-            #endif
-        }
+        if let error { report("Could not connect. Try again. \(error.localizedDescription)"); return }
+        updateConnection()
+        if let data = session.receivedApplicationContext[Self.summaryKey] as? Data,
+           let summary = try? JSONDecoder().decode(PocketSyncSummary.self, from: data) { receive(summary: summary) }
+        #if os(watchOS)
+        flushOutgoing()
+        #else
+        Task { await importInbox() }
+        #endif
     }
 
-    private func updateReachability() {
+    private func updateConnection() {
         isReachable = session.isReachable
-        if isActivated {
-            statusMessage = isReachable
-                ? "iPhone nearby · background delivery ready"
-                : "iPhone offline · transfers remain queued"
-        }
+        #if os(iOS)
+        if !session.isPaired { statusMessage = "Pair an Apple Watch to bring activities and voice memos here." }
+        else if !session.isWatchAppInstalled { statusMessage = "Install Trailmark from the Watch app on your iPhone, then open it on your watch." }
+        else { statusMessage = "Ready for watch activities and voice memos. Delivery can continue while the apps are in the background." }
+        #else
+        // Reachability describes live messaging, not whether queued delivery can run.
+        if pendingCount == 0 { statusMessage = "Ready to sync with iPhone" }
+        #endif
     }
 
     private func receive(activity: WatchActivityRecord) {
-        activityReceiver?(activity)
-        statusMessage = "Watch activity added to Journeys"
+        do {
+            try PocketSyncArchive.save(activity, direction: .incoming)
+            Task { await importInbox() }
+        } catch { report("An activity arrived but could not be stored. \(error.localizedDescription)") }
     }
 
     private func receive(summary: PocketSyncSummary) {
@@ -186,107 +200,122 @@ public final class PocketSyncService: NSObject {
         summaryReceiver?(summary)
     }
 
-    private func receive(memo: IncomingPocketMemo) {
-        memoReceiver?(memo)
-        statusMessage = "Watch voice memo added to the journal"
+    private func importInbox() async {
+        guard !importing else { importAgain = true; return }
+        importing = true
+        isWorking = true
+        defer { importing = false; isWorking = false }
+        repeat {
+            importAgain = false
+            do {
+                var saved = 0
+                for activity in try PocketSyncArchive.activities(.incoming) {
+                    if activityReceiver?(activity) == true {
+                        try PocketSyncArchive.removeActivity(activity.id, direction: .incoming)
+                        saved += 1
+                    }
+                }
+                for memo in try PocketSyncArchive.memos(.incoming) {
+                    let incoming = IncomingPocketMemo(metadata: memo.metadata, stagedFileURL: try PocketSyncArchive.fileURL(memo, direction: .incoming))
+                    if await memoReceiver?(incoming) == true {
+                        try PocketSyncArchive.removeMemo(memo, direction: .incoming)
+                        saved += 1
+                    }
+                }
+                pendingCount = try PocketSyncArchive.activities(.incoming).count + PocketSyncArchive.memos(.incoming).count
+                if pendingCount > 0 { report("\(pendingCount) received item(s) are waiting to be saved. Free some storage if needed, then tap Retry sync.") }
+                else if saved > 0 { errorMessage = nil; statusMessage = "Saved on this iPhone · find your activities in Journeys and memos in Journal" }
+            } catch { report("Received items are waiting to be saved. \(error.localizedDescription)") }
+        } while importAgain
     }
+
+    private func report(_ message: String) { errorMessage = message }
 
     #if os(watchOS)
-    private func finish(fileTransfer: WCSessionFileTransfer, error: Error?) {
+    private func finishMemo(_ metadata: PocketMemoMetadata, error: String?) {
         if let error {
-            statusMessage = "Memo transfer needs another try: \(error.localizedDescription)"
+            memoStates[metadata.mediaID] = .failed
+            report("Your memo is safe on watch. Retry sync. \(error)")
             return
         }
-        try? FileManager.default.removeItem(at: fileTransfer.file.fileURL)
-        statusMessage = "Voice memo delivered to iPhone"
+        do {
+            for memo in try PocketSyncArchive.memos(.outgoing) where memo.metadata.mediaID == metadata.mediaID {
+                try PocketSyncArchive.removeMemo(memo, direction: .outgoing)
+            }
+            memoStates[metadata.mediaID] = .transferred
+            pendingCount = try PocketSyncArchive.activities(.outgoing).count + PocketSyncArchive.memos(.outgoing).count
+            statusMessage = "Memo transferred · open Journal on iPhone to play it"
+        } catch { report("Memo transferred, but its temporary copy needs cleanup. Retry sync. \(error.localizedDescription)") }
+    }
+
+    private func finishActivity(_ id: UUID, error: String?) {
+        if let error { report("Activity saved on watch. Retry sync. \(error)"); return }
+        do {
+            try PocketSyncArchive.removeActivity(id, direction: .outgoing)
+            pendingCount = try PocketSyncArchive.activities(.outgoing).count + PocketSyncArchive.memos(.outgoing).count
+            statusMessage = "Activity transferred · open Journeys on iPhone"
+        } catch { report("Activity transferred. Retry sync to finish cleanup. \(error.localizedDescription)") }
     }
     #endif
-
-    nonisolated private static func stageIncomingFile(from source: URL) throws -> URL {
-        let directory = try syncDirectory(named: "Inbox")
-        let ext = source.pathExtension.isEmpty ? "m4a" : source.pathExtension
-        let destination = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
-        try FileManager.default.copyItem(at: source, to: destination)
-        return destination
-    }
-
-    nonisolated private static func stageOutgoingFile(from source: URL) throws -> URL {
-        let directory = try syncDirectory(named: "Outbox")
-        let ext = source.pathExtension.isEmpty ? "m4a" : source.pathExtension
-        let destination = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
-        try FileManager.default.copyItem(at: source, to: destination)
-        return destination
-    }
-
-    nonisolated private static func syncDirectory(named name: String) throws -> URL {
-        let base = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let directory = base.appendingPathComponent("TrailmarkCore/PocketSync/\(name)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
-    }
 
     nonisolated private static let activityKey = "trailmark.activity.v1"
     nonisolated private static let summaryKey = "trailmark.summary.v1"
     nonisolated private static let memoKey = "trailmark.memo.v1"
     nonisolated private static let lastActivityIDKey = "trailmark.pocket-sync.last-activity-id"
     nonisolated private static let lastActivityDateKey = "trailmark.pocket-sync.last-activity-date"
-    nonisolated private static let memoAssociationWindow: TimeInterval = 12 * 60 * 60
 }
 
 extension PocketSyncService: WCSessionDelegate {
-    nonisolated public func session(
-        _ session: WCSession,
-        activationDidCompleteWith activationState: WCSessionActivationState,
-        error: (any Error)?
-    ) {
+    nonisolated public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: (any Error)?) {
         Task { @MainActor [weak self] in self?.didActivate(error: error) }
     }
-
     nonisolated public func sessionReachabilityDidChange(_ session: WCSession) {
-        Task { @MainActor [weak self] in self?.updateReachability() }
+        Task { @MainActor [weak self] in self?.updateConnection() }
     }
-
     nonisolated public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
         guard let data = userInfo[Self.activityKey] as? Data,
               let activity = try? JSONDecoder().decode(WatchActivityRecord.self, from: data) else { return }
         Task { @MainActor [weak self] in self?.receive(activity: activity) }
     }
-
     nonisolated public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
         guard let data = applicationContext[Self.summaryKey] as? Data,
               let summary = try? JSONDecoder().decode(PocketSyncSummary.self, from: data) else { return }
         Task { @MainActor [weak self] in self?.receive(summary: summary) }
     }
-
     nonisolated public func session(_ session: WCSession, didReceive file: WCSessionFile) {
         guard let data = file.metadata?[Self.memoKey] as? Data,
               let metadata = try? JSONDecoder().decode(PocketMemoMetadata.self, from: data),
-              metadata.duration > 0,
-              let stagedURL = try? Self.stageIncomingFile(from: file.fileURL) else { return }
-        let incoming = IncomingPocketMemo(metadata: metadata, stagedFileURL: stagedURL)
-        Task { @MainActor [weak self] in self?.receive(memo: incoming) }
+              metadata.duration.isFinite, metadata.duration > 0 else { return }
+        do {
+            // Copy bytes and manifest synchronously, before WC deletes its temporary URL.
+            _ = try PocketSyncArchive.stage(file.fileURL, metadata: metadata, direction: .incoming)
+            Task { @MainActor [weak self] in await self?.importInbox() }
+        } catch {
+            let message = error.localizedDescription
+            Task { @MainActor [weak self] in self?.report("A memo could not be received. Send it again from your watch. \(message)") }
+        }
     }
-
     #if os(iOS)
-    nonisolated public func sessionDidBecomeInactive(_ session: WCSession) {}
-
-    nonisolated public func sessionDidDeactivate(_ session: WCSession) {
-        session.activate()
+    nonisolated public func sessionWatchStateDidChange(_ session: WCSession) {
+        Task { @MainActor [weak self] in self?.updateConnection() }
     }
+    nonisolated public func sessionDidBecomeInactive(_ session: WCSession) {
+        Task { @MainActor [weak self] in self?.isActivated = false; self?.statusMessage = "Switching Apple Watch connection…" }
+    }
+    nonisolated public func sessionDidDeactivate(_ session: WCSession) { session.activate() }
     #endif
-
     #if os(watchOS)
-    nonisolated public func session(
-        _ session: WCSession,
-        didFinish fileTransfer: WCSessionFileTransfer,
-        error: (any Error)?
-    ) {
-        Task { @MainActor [weak self] in self?.finish(fileTransfer: fileTransfer, error: error) }
+    nonisolated public func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: (any Error)?) {
+        guard let data = fileTransfer.file.metadata?[Self.memoKey] as? Data,
+              let metadata = try? JSONDecoder().decode(PocketMemoMetadata.self, from: data) else { return }
+        let message = error?.localizedDescription
+        Task { @MainActor [weak self] in self?.finishMemo(metadata, error: message) }
+    }
+    nonisolated public func session(_ session: WCSession, didFinish userInfoTransfer: WCSessionUserInfoTransfer, error: (any Error)?) {
+        guard let data = userInfoTransfer.userInfo[Self.activityKey] as? Data,
+              let activity = try? JSONDecoder().decode(WatchActivityRecord.self, from: data) else { return }
+        let message = error?.localizedDescription
+        Task { @MainActor [weak self] in self?.finishActivity(activity.id, error: message) }
     }
     #endif
 }
