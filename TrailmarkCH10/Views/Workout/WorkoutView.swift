@@ -16,11 +16,14 @@ struct WorkoutView: View {
                     TrailmarkSectionHeader(eyebrow: "WALKING WORKOUT", title: "Find your\nwalking rhythm.", subtitle: "Live from your Apple Watch.")
                     heartRateHero
                     sessionMetrics
+                    if let receipt = viewModel.metrics.savedWorkout {
+                        savedWorkoutCard(receipt)
+                    }
                     if let error = viewModel.errorMessage {
                         TrailmarkNotice(title: "Your watch needs attention", message: error, systemImage: "applewatch", tint: TrailmarkTheme.clay)
                     }
                     DisclosureGroup {
-                        Text("Apple Watch measures your heart rate and shares the workout here. Trailmark shows the latest reported sample with its measurement time; iPhone does not estimate BPM. A finished workout is saved to Apple Health. If the connection drops, the watch keeps control of the session.")
+                        Text("Apple Watch measures your heart rate and shares the workout here. Trailmark shows the latest reported sample with its measurement time; iPhone does not estimate BPM. Recording continues on the watch with your wrist down or another app open. Paused time is excluded from walking time. A finished workout is saved to Apple Health. If the connection drops, the watch keeps control of the session.")
                             .font(.footnote)
                             .foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
                             .padding(.top, 10)
@@ -131,6 +134,44 @@ struct WorkoutView: View {
         }
     }
 
+    private func savedWorkoutCard(_ receipt: WorkoutSaveReceipt) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Saved to Apple Health", systemImage: "checkmark.circle.fill")
+                .font(.headline)
+                .foregroundStyle(TrailmarkTheme.accent(for: scheme))
+            Text(receipt.confirmationText)
+                .font(.subheadline)
+                .foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
+            VStack(alignment: .leading, spacing: 6) {
+                Label(receipt.dateText, systemImage: "calendar")
+                Label("Walking time · \(receipt.durationText)", systemImage: "timer")
+            }
+            .font(.subheadline)
+            .foregroundStyle(TrailmarkTheme.ink(for: scheme))
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(viewModel.healthVerificationInstructions)
+                    if let workoutID = receipt.workoutID {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Health workout ID").fontWeight(.medium)
+                            Text(workoutID.uuidString)
+                                .font(.caption.monospaced())
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(TrailmarkTheme.secondaryInk(for: scheme))
+                .padding(.top, 8)
+            } label: {
+                Label("Find this walk in Health", systemImage: "heart.text.clipboard")
+                    .font(.subheadline.weight(.medium))
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .trailmarkCard()
+    }
+
     @ViewBuilder private var controls: some View {
         if viewModel.isSendingCommand {
             ProgressView("Waiting for Apple Watch…").frame(maxWidth: .infinity, minHeight: 52)
@@ -180,6 +221,7 @@ struct WorkoutView: View {
         case .paused: "Paused"
         case .ending: "Finishing"
         case .completed: "Complete"
+        case .confirmationUnavailable: "Check Health"
         case .failed: "Unavailable"
         }
     }
@@ -188,6 +230,7 @@ struct WorkoutView: View {
         case .running: "figure.walk"
         case .paused: "pause.circle"
         case .completed: "checkmark.circle"
+        case .confirmationUnavailable: "questionmark.circle"
         case .failed: "exclamationmark.circle"
         default: "applewatch"
         }

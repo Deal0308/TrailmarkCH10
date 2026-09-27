@@ -9,6 +9,8 @@ public enum WorkoutTrackingState: String, Codable, Sendable {
     case paused
     case ending
     case completed
+    /// The phone knows the session ended, but did not receive its save receipt.
+    case confirmationUnavailable
     case failed
 }
 
@@ -22,6 +24,7 @@ public struct WorkoutMetrics: Codable, Equatable, Sendable {
     public let heartRateSampleDate: Date?
     public let averageHeartRateBPM: Double?
     public let activeEnergyKilocalories: Double?
+    public let savedWorkout: WorkoutSaveReceipt?
     public let statusMessage: String
 
     public init(
@@ -32,6 +35,7 @@ public struct WorkoutMetrics: Codable, Equatable, Sendable {
         heartRateSampleDate: Date? = nil,
         averageHeartRateBPM: Double? = nil,
         activeEnergyKilocalories: Double? = nil,
+        savedWorkout: WorkoutSaveReceipt? = nil,
         statusMessage: String = "Ready to start a walking workout."
     ) {
         self.state = state
@@ -44,6 +48,7 @@ public struct WorkoutMetrics: Codable, Equatable, Sendable {
             $0.isFinite && $0 >= 0 ? $0 : nil
         }
         self.statusMessage = statusMessage
+        self.savedWorkout = savedWorkout
     }
 
     public static let idle = WorkoutMetrics()

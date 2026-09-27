@@ -16,11 +16,14 @@ public final class WorkoutSessionService: NSObject {
 
     #if os(watchOS)
     private var builder: HKLiveWorkoutBuilder?
+    private var isStarting = false
     private var isFinishing = false
     private var elapsedUpdates: Task<Void, Never>?
+    private var finalDeliveryTimeout: Task<Void, Never>?
     #elseif os(iOS)
     private var connectionWatchdog: Task<Void, Never>?
     private var commandWatchdog: Task<Void, Never>?
+    private var saveConfirmationWatchdog: Task<Void, Never>?
     private var pendingCommand: WorkoutRemoteCommand?
     #endif
 
@@ -45,6 +48,9 @@ public final class WorkoutSessionService: NSObject {
 
     public func start() async {
         guard !metrics.isActive, metrics.state != .requestingAuthorization else { return }
+        #if os(watchOS)
+        await start(configuration: Self.walkingConfiguration())
+        #else
         guard let healthStore else {
             fail("Workout sensors require an Apple Watch with Health available. You can return and use the other pages.")
             return
@@ -52,20 +58,24 @@ public final class WorkoutSessionService: NSObject {
         resetForNewWorkout(message: "Requesting Health access…")
 
         do {
-            #if os(watchOS)
-            await start(configuration: Self.walkingConfiguration())
-            #elseif os(iOS)
             let read: Set<HKObjectType> = [HKObjectType.workoutType(), HKQuantityType(.heartRate)]
             try await healthStore.requestAuthorization(toShare: [], read: read)
             update(state: .starting, message: "Opening Trailmark Workout on Apple Watch…")
             try await healthStore.startWatchApp(toHandle: Self.walkingConfiguration())
             startConnectionWatchdog()
-            #else
-            fail("Live workout tracking requires iPhone or Apple Watch.")
-            #endif
         } catch {
             fail(Self.message(for: error))
         }
+        #endif
+    }
+
+    /// Resample presentation after returning to the app. The session and live
+    /// builder keep collecting independently of scene/view visibility.
+    public func refreshCurrentWorkout() {
+        #if os(watchOS)
+        guard metrics.state == .running || metrics.state == .paused else { return }
+        refreshStatistics(Set([HKQuantityType(.heartRate), HKQuantityType(.activeEnergyBurned)]))
+        #endif
     }
 
     public func pause() {
@@ -87,12 +97,16 @@ public final class WorkoutSessionService: NSObject {
     }
 
     public func end() {
-        guard metrics.isActive, metrics.state != .ending else { return }
+        guard metrics.state == .running || metrics.state == .paused else { return }
         #if os(iOS)
         send(command: .end)
         #else
+        elapsedUpdates?.cancel()
+        elapsedUpdates = nil
         update(state: .ending, message: "Finishing workout…")
-        session?.end()
+        // Stop sensors but retain workout runtime and mirroring until the save
+        // and its final confirmation finish. end() exits session mode.
+        session?.stopActivity(with: Date())
         #endif
     }
 
@@ -110,6 +124,10 @@ public final class WorkoutSessionService: NSObject {
         #elseif os(iOS)
         connectionWatchdog?.cancel()
         connectionWatchdog = nil
+        saveConfirmationWatchdog?.cancel()
+        saveConfirmationWatchdog = nil
+        session?.delegate = nil
+        session = nil
         clearPendingCommand()
         #endif
         metrics = WorkoutMetrics(state: .requestingAuthorization, statusMessage: message)
@@ -124,7 +142,8 @@ public final class WorkoutSessionService: NSObject {
         heartRateSampleDate: Date? = nil,
         averageHeartRate: Double? = nil,
         activeEnergy: Double? = nil,
-        message: String? = nil
+        message: String? = nil,
+        mirror: Bool = true
     ) {
         metrics = WorkoutMetrics(
             state: state ?? metrics.state,
@@ -134,11 +153,12 @@ public final class WorkoutSessionService: NSObject {
             heartRateSampleDate: heartRateSampleDate ?? metrics.heartRateSampleDate,
             averageHeartRateBPM: averageHeartRate ?? metrics.averageHeartRateBPM,
             activeEnergyKilocalories: activeEnergy ?? metrics.activeEnergyKilocalories,
+            savedWorkout: metrics.savedWorkout,
             statusMessage: message ?? metrics.statusMessage
         )
         onMetrics?(metrics)
         #if os(watchOS)
-        sendMetricsToPhone()
+        if mirror { sendMetricsToPhone() }
         #endif
     }
 
@@ -146,6 +166,10 @@ public final class WorkoutSessionService: NSObject {
         metrics = received
         onMetrics?(received)
         #if os(iOS)
+        if received.state == .completed || received.state == .failed {
+            saveConfirmationWatchdog?.cancel()
+            saveConfirmationWatchdog = nil
+        }
         let confirmed = (pendingCommand == .pause && received.state == .paused)
             || (pendingCommand == .resume && received.state == .running)
             || (pendingCommand == .end && (received.state == .ending || received.state == .completed))
@@ -163,7 +187,7 @@ public final class WorkoutSessionService: NSObject {
         connectionWatchdog = nil
         clearPendingCommand()
         #endif
-        metrics = WorkoutMetrics(
+        let failure = WorkoutMetrics(
             state: .failed,
             startedAt: metrics.startedAt,
             elapsedTime: metrics.elapsedTime,
@@ -171,35 +195,55 @@ public final class WorkoutSessionService: NSObject {
             heartRateSampleDate: metrics.heartRateSampleDate,
             averageHeartRateBPM: metrics.averageHeartRateBPM,
             activeEnergyKilocalories: metrics.activeEnergyKilocalories,
-            statusMessage: "Workout unavailable."
+            statusMessage: message
         )
-        onMetrics?(metrics)
         onError?(message)
         #if os(watchOS)
-        sendMetricsToPhone()
+        if let session {
+            isFinishing = true
+            builder?.delegate = nil
+            update(state: .ending, message: "Ending workout…", mirror: false)
+            finishDelivering(failure, from: session)
+        } else { accept(failure) }
+        #else
+        accept(failure)
         #endif
     }
 
     private static func message(for error: Error) -> String {
         let nsError = error as NSError
         if nsError.domain == HKErrorDomain, nsError.code == HKError.errorAuthorizationDenied.rawValue {
-            return "Allow Trailmark to read Heart Rate and save Workouts in Health settings, then try again."
+            return "Allow Trailmark to save Workouts in Health settings. Enable Heart Rate and Active Energy access for live readings, then try again."
         }
         return error.localizedDescription
     }
 
     #if os(watchOS)
     private func start(configuration: HKWorkoutConfiguration) async {
-        guard !metrics.isActive else { return }
-        guard let healthStore else { fail("Health data is unavailable on this watch."); return }
+        guard !metrics.isActive, !isStarting, !isFinishing, session == nil else { return }
+        guard let healthStore else {
+            fail("Live workouts require a physical Apple Watch with Health available. You can use the other pages in the simulator.")
+            return
+        }
+        isStarting = true
+        defer { isStarting = false }
         do {
             resetForNewWorkout(message: "Requesting workout and heart-rate access…")
-            let share: Set<HKSampleType> = [HKObjectType.workoutType()]
+            let share: Set<HKSampleType> = [
+                HKObjectType.workoutType(), HKQuantityType(.heartRate),
+                HKQuantityType(.activeEnergyBurned), HKQuantityType(.distanceWalkingRunning)
+            ]
             let read: Set<HKObjectType> = [
-                HKQuantityType(.heartRate),
-                HKQuantityType(.activeEnergyBurned)
+                HKObjectType.workoutType(), HKQuantityType(.heartRate),
+                HKQuantityType(.activeEnergyBurned), HKQuantityType(.distanceWalkingRunning)
             ]
             try await healthStore.requestAuthorization(toShare: share, read: read)
+            // requestAuthorization completes the prompt; it does not mean every
+            // permission was granted. Only write status is publicly observable.
+            guard healthStore.authorizationStatus(for: HKObjectType.workoutType()) == .sharingAuthorized else {
+                fail("Allow Trailmark to save Workouts in Health settings before starting a walk. Other watch pages remain available.")
+                return
+            }
             update(state: .starting, message: "Starting workout sensors…")
             let session = try HKWorkoutSession(healthStore: healthStore, configuration: configuration)
             let builder = session.associatedWorkoutBuilder()
@@ -211,17 +255,30 @@ public final class WorkoutSessionService: NSObject {
             let start = Date()
             session.startActivity(with: start)
             try await builder.beginCollection(at: start)
+            guard self.session === session, !isFinishing else { return }
+            update(startedAt: start, elapsedTime: builder.elapsedTime)
             do { try await session.startMirroringToCompanionDevice() }
-            catch { onError?("The workout is running on Apple Watch, but iPhone mirroring is unavailable: \(error.localizedDescription)") }
+            catch {
+                if self.session === session, !isFinishing {
+                    onError?("Your walk is recording on Apple Watch. Live iPhone display is unavailable; the finished activity can still sync later.")
+                }
+            }
         } catch {
+            // A collection error can happen after sensors started. Explicitly
+            // stop the old session so it cannot outlive this failed attempt.
+            let failedSession = session
+            session?.delegate = nil
+            builder?.delegate = nil
+            builder?.discardWorkout()
             session = nil
             builder = nil
+            failedSession?.end()
             fail(Self.message(for: error))
         }
     }
 
-    private func refreshStatistics(_ types: Set<HKSampleType>) {
-        guard let builder else { return }
+    private func refreshStatistics(_ types: Set<HKSampleType>, isFinal: Bool = false) {
+        guard let builder, !isFinishing || isFinal else { return }
         let heartType = HKQuantityType(.heartRate)
         let energyType = HKQuantityType(.activeEnergyBurned)
         let heartUnit = HKUnit.count().unitDivided(by: .minute())
@@ -243,36 +300,78 @@ public final class WorkoutSessionService: NSObject {
     }
 
     private func finishWorkout(at date: Date) async {
-        guard !isFinishing, let builder else { return }
+        guard !isFinishing, let builder, let session else { return }
         isFinishing = true
         elapsedUpdates?.cancel()
         elapsedUpdates = nil
+        update(state: .ending, elapsedTime: builder.elapsedTime, message: "Saving your walk to Health…")
         do {
             try await builder.endCollection(at: date)
+            guard self.session === session, self.builder === builder else { return }
             let savedWorkout = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HKWorkout?, Error>) in
                 builder.finishWorkout { workout, error in
                     if let error { continuation.resume(throwing: error) }
                     else { continuation.resume(returning: workout) }
                 }
             }
-            guard savedWorkout != nil else {
-                fail("Health did not confirm the workout save. Check Apple Health before recording another session.")
-                session = nil
-                self.builder = nil
-                isFinishing = false
-                return
-            }
-            refreshStatistics(Set([HKQuantityType(.heartRate), HKQuantityType(.activeEnergyBurned)]))
-            update(state: .completed, elapsedTime: builder.elapsedTime,
-                   message: "Workout saved to Health. Heart-rate values appear only when samples were collected.")
+            guard self.session === session, self.builder === builder else { return }
+            // Apple documents nil workout + nil error as successful saving while
+            // locked. A receipt records that success without inventing a UUID.
+            let receipt = WorkoutSaveReceipt(
+                workoutID: savedWorkout?.uuid,
+                startDate: savedWorkout?.startDate ?? builder.startDate ?? metrics.startedAt ?? date,
+                endDate: savedWorkout?.endDate ?? date,
+                duration: savedWorkout?.duration ?? builder.elapsedTime
+            )
+            refreshStatistics(Set([HKQuantityType(.heartRate), HKQuantityType(.activeEnergyBurned)]), isFinal: true)
+            let completed = WorkoutMetrics(
+                state: .completed, startedAt: receipt.startDate, elapsedTime: receipt.duration,
+                currentHeartRateBPM: metrics.currentHeartRateBPM,
+                heartRateSampleDate: metrics.heartRateSampleDate,
+                averageHeartRateBPM: metrics.averageHeartRateBPM,
+                activeEnergyKilocalories: metrics.activeEnergyKilocalories,
+                savedWorkout: receipt, statusMessage: receipt.confirmationText
+            )
+            finishDelivering(completed, from: session)
         } catch { fail("The workout could not be saved: \(error.localizedDescription)") }
+    }
+
+    /// Give the companion a final receipt before ending mirroring. A disconnected
+    /// phone cannot hold workout runtime open indefinitely; Pocket Sync separately
+    /// queues the completed activity when the final state is published.
+    private func finishDelivering(_ result: WorkoutMetrics, from finishedSession: HKWorkoutSession) {
+        finalDeliveryTimeout?.cancel()
+        guard finishedSession.state != .ended,
+              let data = try? JSONEncoder().encode(WorkoutRemoteMessage(metrics: result)) else {
+            releaseSession(finishedSession, result: result)
+            return
+        }
+        finalDeliveryTimeout = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            self?.releaseSession(finishedSession, result: result)
+        }
+        finishedSession.sendToRemoteWorkoutSession(data: data) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.releaseSession(finishedSession, result: result) }
+        }
+    }
+
+    private func releaseSession(_ finishedSession: HKWorkoutSession, result: WorkoutMetrics) {
+        guard session === finishedSession else { return }
+        finalDeliveryTimeout?.cancel()
+        finalDeliveryTimeout = nil
+        elapsedUpdates?.cancel()
+        elapsedUpdates = nil
+        finishedSession.delegate = nil
+        builder?.delegate = nil
+        builder = nil
         session = nil
-        self.builder = nil
         isFinishing = false
+        if finishedSession.state != .ended { finishedSession.end() }
+        accept(result)
     }
 
     private func sendMetricsToPhone() {
-        guard session?.state == .running || session?.state == .paused || metrics.state == .completed || metrics.state == .failed,
+        guard session?.state == .running || session?.state == .paused || session?.state == .stopped,
               let data = try? JSONEncoder().encode(WorkoutRemoteMessage(metrics: metrics)) else { return }
         session?.sendToRemoteWorkoutSession(data: data) { _, _ in }
     }
@@ -294,10 +393,14 @@ public final class WorkoutSessionService: NSObject {
     private func attachMirroredSession(_ mirroredSession: HKWorkoutSession) {
         connectionWatchdog?.cancel()
         connectionWatchdog = nil
+        saveConfirmationWatchdog?.cancel()
+        saveConfirmationWatchdog = nil
+        clearPendingCommand()
+        session?.delegate = nil
         session = mirroredSession
         mirroredSession.delegate = self
-        update(state: .starting, startedAt: mirroredSession.startDate,
-               message: "Connecting to Apple Watch heart-rate tracking…")
+        accept(WorkoutMetrics(state: .starting, startedAt: mirroredSession.startDate,
+                              statusMessage: "Connecting to Apple Watch heart-rate tracking…"))
     }
 
     private func send(command: WorkoutRemoteCommand) {
@@ -340,6 +443,17 @@ public final class WorkoutSessionService: NSObject {
             fail("Apple Watch did not connect. Make sure it is nearby, unlocked, and running Trailmark, then try again.")
         }
     }
+
+    private func awaitFinalConfirmation(from endedSession: HKWorkoutSession) {
+        clearPendingCommand()
+        saveConfirmationWatchdog?.cancel()
+        saveConfirmationWatchdog = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(8)) } catch { return }
+            guard let self, session === endedSession, metrics.state == .ending else { return }
+            update(state: .confirmationUnavailable,
+                   message: "Your watch session ended, but its save confirmation did not reach this iPhone. Check Apple Watch or Health before starting another walk. Pocket Sync may still deliver the activity.")
+        }
+    }
     #endif
 }
 
@@ -360,15 +474,19 @@ extension WorkoutSessionService: HKWorkoutSessionDelegate {
         date: Date
     ) {
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, session === workoutSession else { return }
+            // HealthKit can deliver queued transitions after our final data.
+            guard metrics.state != .completed, metrics.state != .failed else { return }
             switch toState {
             case .running:
+                guard metrics.state != .ending else { return }
                 update(state: .running, startedAt: workoutSession.startDate ?? date,
                        message: "Tracking heart rate on Apple Watch.")
                 #if os(watchOS)
                 startElapsedUpdates()
                 #endif
             case .paused:
+                guard metrics.state != .ending else { return }
                 #if os(watchOS)
                 elapsedUpdates?.cancel()
                 elapsedUpdates = nil
@@ -383,9 +501,8 @@ extension WorkoutSessionService: HKWorkoutSessionDelegate {
                 #if os(watchOS)
                 await finishWorkout(at: date)
                 #else
-                if metrics.state != .completed {
-                    update(state: .ending, message: "Waiting for Apple Watch to save the workout…")
-                }
+                update(state: .ending, message: "The watch session ended. Check Apple Watch or Health for the saved walk; its activity can still arrive through Pocket Sync.")
+                awaitFinalConfirmation(from: workoutSession)
                 #endif
             case .prepared:
                 update(state: .starting, message: "Workout sensors prepared.")
@@ -393,6 +510,9 @@ extension WorkoutSessionService: HKWorkoutSessionDelegate {
                 break
             case .stopped:
                 update(state: .ending, message: "Finishing workout…")
+                #if os(watchOS)
+                await finishWorkout(at: date)
+                #endif
             @unknown default:
                 break
             }
@@ -400,7 +520,16 @@ extension WorkoutSessionService: HKWorkoutSessionDelegate {
     }
 
     nonisolated public func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
-        Task { @MainActor [weak self] in self?.fail(Self.message(for: error)) }
+        Task { @MainActor [weak self] in
+            guard let self, session === workoutSession else { return }
+            guard metrics.state != .completed else { return }
+            #if os(watchOS)
+            // A stopped session may report an interruption while its builder is
+            // already saving. Let that operation report its actual save outcome.
+            if isFinishing { return }
+            #endif
+            fail(Self.message(for: error))
+        }
     }
 
     nonisolated public func workoutSession(
@@ -408,18 +537,26 @@ extension WorkoutSessionService: HKWorkoutSessionDelegate {
         didReceiveDataFromRemoteWorkoutSession data: [Data]
     ) {
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, session === workoutSession else { return }
             for value in data {
                 guard let message = try? JSONDecoder().decode(WorkoutRemoteMessage.self, from: value) else { continue }
                 #if os(watchOS)
                 switch message.command {
-                case .pause: session?.pause()
-                case .resume: session?.resume()
+                case .pause: pause()
+                case .resume: resume()
                 case .end: end()
                 case nil: break
                 }
                 #else
-                if let metrics = message.metrics { accept(metrics) }
+                if let received = message.metrics {
+                    // Queued older readings must not replace the final receipt.
+                    if metrics.state == .completed { continue }
+                    if metrics.state == .failed,
+                       received.state != .completed { continue }
+                    if (workoutSession.state == .ended || metrics.state == .confirmationUnavailable),
+                       received.state != .completed, received.state != .failed { continue }
+                    accept(received)
+                }
                 #endif
             }
         }
@@ -432,12 +569,16 @@ extension WorkoutSessionService: HKLiveWorkoutBuilderDelegate {
         _ workoutBuilder: HKLiveWorkoutBuilder,
         didCollectDataOf collectedTypes: Set<HKSampleType>
     ) {
-        Task { @MainActor [weak self] in self?.refreshStatistics(collectedTypes) }
+        Task { @MainActor [weak self] in
+            guard let self, builder === workoutBuilder else { return }
+            refreshStatistics(collectedTypes)
+        }
     }
 
     nonisolated public func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {
         Task { @MainActor [weak self] in
-            self?.update(elapsedTime: workoutBuilder.elapsedTime)
+            guard let self, builder === workoutBuilder, !isFinishing else { return }
+            update(elapsedTime: workoutBuilder.elapsedTime)
         }
     }
 }

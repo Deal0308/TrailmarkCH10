@@ -51,7 +51,10 @@ struct TrailMarkWatchCh10_Watch_AppApp: App {
             .tabViewStyle(.verticalPage)
             .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { pocketSyncService.retry() }
+                if phase == .active {
+                    workoutViewModel.refreshCurrentWorkout()
+                    pocketSyncService.retry()
+                }
             }
         }
     }

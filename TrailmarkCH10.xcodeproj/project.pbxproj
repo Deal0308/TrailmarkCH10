@@ -166,6 +166,10 @@
 					};
 					7C6F7DDC304C7C7600F721E4 = {
 						CreatedOnToolsVersion = 26.6;
+						SystemCapabilities = {
+							com.apple.BackgroundModes = { enabled = 1; };
+							com.apple.HealthKit = { enabled = 1; };
+						};
 					};
 				};
 			};

@@ -5,7 +5,6 @@ import TrailMarkCH10Core
 struct WatchWorkoutView: View {
     let viewModel: WorkoutViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @ScaledMetric(relativeTo: .largeTitle) private var heartRateSize: CGFloat = 36
     @State private var confirmingEnd = false
 
     var body: some View {
@@ -21,38 +20,40 @@ struct WatchWorkoutView: View {
                         .accessibilityValue(viewModel.metrics.elapsedText)
                 }
 
-                VStack(spacing: 2) {
-                    Label("Heart rate", systemImage: "heart.fill")
-                        .font(.caption2)
-                        .foregroundStyle(WatchDesign.coral)
-                    Text(viewModel.metrics.currentHeartRateText)
-                        .font(.system(size: heartRateSize, weight: .semibold, design: .rounded))
-                        .foregroundStyle(WatchDesign.foreground)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.65)
-                        .contentTransition(.numericText())
-                    if let date = viewModel.metrics.heartRateSampleDate {
-                        Text("Measured \(date.formatted(date: .omitted, time: .shortened))")
-                            .font(.caption2)
-                            .foregroundStyle(WatchDesign.muted)
-                    } else {
-                        Text("No heart-rate sample")
-                            .font(.caption2)
-                            .foregroundStyle(WatchDesign.muted)
-                    }
+                if let receipt = viewModel.metrics.savedWorkout {
+                    savedWorkoutCard(receipt)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(WatchDesign.surface, in: RoundedRectangle(cornerRadius: 18))
-                .accessibilityElement(children: .combine)
+
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(spacing: 6) { liveMetricCards }
+                } else {
+                    HStack(alignment: .top, spacing: 6) { liveMetricCards }
+                }
+
+                if let date = viewModel.metrics.heartRateSampleDate {
+                    Text("Heart rate measured \(date.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption2)
+                        .foregroundStyle(WatchDesign.muted)
+                        .multilineTextAlignment(.center)
+                } else if viewModel.metrics.state == .running || viewModel.metrics.state == .paused {
+                    Text("No heart-rate sample yet")
+                        .font(.caption2)
+                        .foregroundStyle(WatchDesign.muted)
+                        .multilineTextAlignment(.center)
+                }
 
                 controls
 
-                if dynamicTypeSize.isAccessibilitySize {
-                    VStack(spacing: 6) { workoutMetricCards }
-                } else {
-                    HStack(spacing: 6) { workoutMetricCards }
+                runtimeNote
+
+                if viewModel.metrics.state == .completed {
+                    WatchMetricCard(
+                        title: "Average heart rate",
+                        value: viewModel.metrics.averageHeartRateText,
+                        symbol: "heart",
+                        color: WatchDesign.coral,
+                        accessibilityValue: viewModel.metrics.averageHeartRateText
+                    )
                 }
 
                 Text(viewModel.errorMessage ?? viewModel.metrics.statusMessage)
@@ -105,13 +106,13 @@ struct WatchWorkoutView: View {
         }
     }
 
-    @ViewBuilder private var workoutMetricCards: some View {
+    @ViewBuilder private var liveMetricCards: some View {
         WatchMetricCard(
-            title: "Average",
-            value: viewModel.metrics.averageHeartRateText,
-            symbol: "heart",
+            title: "Heart rate",
+            value: viewModel.metrics.currentHeartRateText,
+            symbol: "heart.fill",
             color: WatchDesign.coral,
-            accessibilityValue: viewModel.metrics.averageHeartRateText
+            accessibilityValue: viewModel.metrics.currentHeartRateText
         )
         WatchMetricCard(
             title: "Energy",
@@ -120,6 +121,64 @@ struct WatchWorkoutView: View {
             color: WatchDesign.gold,
             accessibilityValue: viewModel.metrics.energyText
         )
+    }
+
+    @ViewBuilder private var runtimeNote: some View {
+        if viewModel.metrics.state == .running {
+            Label("Keep walking. Recording continues with your wrist down or another app open.", systemImage: "figure.walk")
+                .font(.caption2)
+                .foregroundStyle(WatchDesign.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if viewModel.metrics.state == .paused {
+            Text("Paused time does not count toward your walking time. Resume when you’re ready.")
+                .font(.caption2)
+                .foregroundStyle(WatchDesign.muted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func savedWorkoutCard(_ receipt: WorkoutSaveReceipt) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Label("Saved to Health", systemImage: "checkmark.circle.fill")
+                .font(.headline)
+                .foregroundStyle(WatchDesign.accent)
+            Text(receipt.dateText)
+                .font(.caption2)
+                .foregroundStyle(WatchDesign.foreground)
+            Text("Walking time · \(receipt.durationText)")
+                .font(.caption2)
+                .foregroundStyle(WatchDesign.foreground)
+            Text(receipt.confirmationText)
+                .font(.caption2)
+                .foregroundStyle(WatchDesign.muted)
+            NavigationLink {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Find your walk", systemImage: "heart.text.clipboard")
+                            .font(.headline)
+                            .foregroundStyle(WatchDesign.accent)
+                        Text(viewModel.healthVerificationInstructions)
+                            .font(.footnote)
+                            .foregroundStyle(WatchDesign.foreground)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 12)
+                }
+                .background(WatchDesign.background)
+                .navigationTitle("Health")
+            } label: {
+                Text("Find it in Health")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(WatchDesign.accent)
+            }
+            .buttonStyle(WatchActionStyle(prominent: false))
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(WatchDesign.surface, in: RoundedRectangle(cornerRadius: 15))
     }
 
     @ViewBuilder private var activeWorkoutButtons: some View {
@@ -149,6 +208,7 @@ struct WatchWorkoutView: View {
         case .paused: "Paused"
         case .ending: "Saving"
         case .completed: "Workout saved"
+        case .confirmationUnavailable: "Check Health"
         case .requestingAuthorization, .starting: "Getting ready"
         case .failed: "Workout"
         case .idle: "Ready to walk"

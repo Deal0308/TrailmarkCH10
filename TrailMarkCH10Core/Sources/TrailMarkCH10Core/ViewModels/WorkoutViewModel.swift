@@ -13,6 +13,10 @@ public final class WorkoutViewModel {
         return pocketSync.errorMessage ?? pocketSync.statusMessage
     }
     public private(set) var isSendingCommand = false
+    public var healthVerificationInstructions: String {
+        "On your paired iPhone, open Health → Browse → Activity → Workouts → Show All Data. Find Walking at this date and time, then compare its duration and Trailmark source. Allow time for Apple Health to sync from the watch."
+    }
+    public func refreshCurrentWorkout() { service.refreshCurrentWorkout() }
     public func retrySync() { pocketSync?.retry() }
     @ObservationIgnored private let service: WorkoutSessionService
     @ObservationIgnored private let pocketSync: PocketSyncService?
@@ -22,6 +26,9 @@ public final class WorkoutViewModel {
         self.pocketSync = pocketSync
         service.onCommandPending = { [weak self] in self?.isSendingCommand = $0 }
         service.onMetrics = { [weak self] metrics in
+            if metrics.state == .requestingAuthorization || metrics.state == .starting {
+                self?.errorMessage = nil
+            }
             self?.metrics = metrics
             if metrics.state == .failed, self?.errorMessage == nil {
                 self?.errorMessage = "Apple Watch could not complete the workout. Check the watch for details before starting another session."

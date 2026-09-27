@@ -83,7 +83,7 @@ public final class PocketSyncService: NSObject {
         if metrics.state == .completed, lastWorkoutState != .completed {
             let record = WatchActivityRecord(
                 id: activityID ?? UUID(), startDate: metrics.startedAt ?? activityStartedAt ?? Date(),
-                endDate: activityEndedAt ?? Date(), duration: metrics.elapsedTime,
+                endDate: metrics.savedWorkout?.endDate ?? activityEndedAt ?? Date(), duration: metrics.elapsedTime,
                 averageHeartRateBPM: metrics.averageHeartRateBPM,
                 activeEnergyKilocalories: metrics.activeEnergyKilocalories
             )

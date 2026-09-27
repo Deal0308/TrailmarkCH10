@@ -21,9 +21,9 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Trailmark reads steps, heart rate, and active energy to show live vitals and workout metrics on Apple Watch.</string>
+	<string>Trailmark reads steps, heart rate, active energy, walking distance, and workouts to show live vitals and your walking workout on Apple Watch.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Trailmark saves walking workouts and their heart-rate and energy data after you start a workout.</string>
+	<string>Trailmark saves walking workouts and their heart-rate, active energy, and distance samples after you start a workout.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Trailmark uses the Apple Watch microphone to record voice memos that you choose to save.</string>
 	<key>NSMotionUsageDescription</key>
