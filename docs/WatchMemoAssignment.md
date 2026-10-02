@@ -41,11 +41,11 @@ TrailMarkCH10Core/Sources/TrailMarkCH10Core/
       # framework-independent completed-capture value
   Models/AudioPlaybackState.swift
       # time, progress, playing state, and level
-  Services/Storage/JournalMediaStore.swift
+  Media/JournalMediaStore.swift
       # same relative-file persistence and JSON index used by iOS
-  Services/Media/WatchAudioMemoService.swift
+  Media/WatchAudioMemoService.swift
       # watch microphone permission, AVAudioSession, and AVAudioRecorder
-  Services/Media/AudioPlaybackService.swift
+  Media/AudioPlaybackService.swift
       # shared iOS/watchOS AVAudioPlayer ownership
   ViewModels/WatchMemoViewModel.swift
       # capture/save/list/playback state and actions

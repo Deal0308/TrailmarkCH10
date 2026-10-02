@@ -38,17 +38,17 @@ TrailMarkCH10Core/Sources/TrailMarkCH10Core/
       # optional BPM/totals, sample timestamps, formatting, and screen phase
   Models/WorkoutMetrics.swift
       # shared workout values, including optional heartRateSampleDate
-  Services/Health/ActivityHealthService.swift
+  Health/ActivityHealthService.swift
       # existing shared HealthKit manager and watch query ownership
-  Services/Health/ActivityHealthService+LiveVitals.swift
+  Health/ActivityHealthService+LiveVitals.swift
       # watch-only authorization, statistics queries, updates, and day rollover
-  Services/Health/LiveVitalsProviding.swift
+  Health/LiveVitalsProviding.swift
       # framework-free service contract consumed by the view model
   ViewModels/LiveVitalsViewModel.swift
       # opt-in state, lifecycle, source selection, and enable/retry actions
   ViewModels/WorkoutViewModel.swift
       # same workout state and commands used by Home and the iPhone
-  Services/Health/WorkoutSessionService.swift
+  Workout/WorkoutSessionService.swift
       # existing live builder, sample timestamps, workout save, and phone mirroring
 ```
 

@@ -42,7 +42,7 @@ The Health save and Pocket Sync are separate operations. A Journey arriving on t
 | Layer | Existing location | Responsibility |
 | --- | --- | --- |
 | Models | `TrailMarkCH10Core/…/Models/WorkoutMetrics.swift` and `WorkoutSaveReceipt.swift` | Framework-independent lifecycle, optional measurements, sample time, and completion receipt. |
-| Service | `TrailMarkCH10Core/…/Services/Health/WorkoutSessionService.swift` | Health permissions, configuration, session/builder delegates, background-owned collection, save lifecycle, and iPhone mirroring. |
+| Service | `TrailMarkCH10Core/…/Workout/WorkoutSessionService.swift` | Health permissions, configuration, session/builder delegates, background-owned collection, save lifecycle, and iPhone mirroring. |
 | ViewModel | `TrailMarkCH10Core/…/ViewModels/WorkoutViewModel.swift` | Observable state, user actions, errors, and completion/sync presentation. |
 | Watch View | `TrailMarkWatchCh10 Watch App/Views/WatchWorkoutView.swift` | Glanceable readings, Pause/Resume, finish confirmation, and save feedback. |
 | iPhone View | `TrailmarkCH10/Views/Workout/WorkoutView.swift` | The same shared measurements and controls, plus Health verification guidance. |

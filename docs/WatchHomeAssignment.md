@@ -38,9 +38,9 @@ TrailMarkCH10Core/Sources/TrailMarkCH10Core/
   ViewModels/WorkoutViewModel.swift    # shared workout screen state and commands
   ViewModels/TodayViewModel+StepHeadline.swift
                                       # headline/status/action presentation state
-  Services/Health/ActivityHealthService.swift
+  Health/ActivityHealthService.swift
                                       # same HealthKit implementation, configured stepsOnly
-  Services/Health/WorkoutSessionService.swift
+  Workout/WorkoutSessionService.swift
                                       # watch sensors, workout save, iPhone mirroring
   Models/ActivityHealthScope.swift     # quantity-selection configuration
   Models/ActivitySummary.swift         # existing shared model

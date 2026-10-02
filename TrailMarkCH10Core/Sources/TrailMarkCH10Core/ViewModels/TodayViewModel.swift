@@ -11,9 +11,11 @@ public final class TodayViewModel {
     public private(set) var hasCompletedInitialLoad = false
     public private(set) var showingPreviousReadings = false
     @ObservationIgnored private let service: any ActivityHealthProviding
+    @ObservationIgnored private let complicationStore: StepComplicationStore?
 
-    public init(service: (any ActivityHealthProviding)? = nil) {
+    public init(service: (any ActivityHealthProviding)? = nil, complicationStore: StepComplicationStore? = nil) {
         self.service = service ?? ActivityHealthService()
+        self.complicationStore = complicationStore
     }
 
     public var hasReadableData: Bool {
@@ -39,6 +41,11 @@ public final class TodayViewModel {
             metrics = result
             showingPreviousReadings = false
             activitySummary = ActivitySummary(steps: Int((result.steps ?? 0).rounded()), distanceMeters: result.distanceMeters ?? 0, activeEnergyKilocalories: result.activeEnergyKilocalories ?? 0, hydrationMilliliters: result.hydrationMilliliters ?? 0, date: range.endDate)
+            if let steps = result.steps {
+                complicationStore?.save(steps: steps, measuredAt: result.queriedAt)
+            } else {
+                complicationStore?.clear()
+            }
         } catch {
             // Keep same-day readings useful during a failed refresh, clearly marked stale.
             if let metrics, Calendar.current.isDateInToday(metrics.queriedAt) {

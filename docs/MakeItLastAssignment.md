@@ -2,7 +2,7 @@
 
 Trailmark uses the same iPhone app, watch app, and shared `TrailMarkCH10Core` package as the earlier assignments. This report focuses on **Motion** on Apple Watch: Core Motion samples wrist acceleration, a one-second window derives movement intensity, and a SwiftUI page shows the result. Motion starts only after tapping **Start Sensing** and stops when the page or app becomes inactive.
 
-**Submission status:** The code optimizations are implemented and generic watchOS/iOS device builds pass without compiler warnings. No physical Apple Watch is connected to this Mac as of September 29, 2026. Instruments traces, before/after measurements, and their screenshots are **not yet available**. The calculated rates below are design values, not measured battery or CPU savings. This report is not ready to submit for the profiling and measurement rubric rows until those real values and screenshots are added.
+**Submission status:** The code optimizations are implemented and generic watchOS/iOS device builds pass without compiler warnings. No physical Apple Watch is connected to this Mac as of October 2, 2026. Instruments traces, before/after measurements, and their screenshots are **not yet available**. The calculated rates below are design values, not measured battery or CPU savings. This report is not ready to submit for the profiling and measurement rubric rows until those real values and screenshots are added. The [program capstone report](ProgramCapstoneReport.md) carries the same pending measurement table.
 
 ## What changed
 

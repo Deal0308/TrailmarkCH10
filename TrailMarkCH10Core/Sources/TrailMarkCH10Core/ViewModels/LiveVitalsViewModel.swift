@@ -15,15 +15,20 @@ public final class LiveVitalsViewModel {
     public let workoutViewModel: WorkoutViewModel?
 
     @ObservationIgnored private let service: any LiveVitalsProviding
+    @ObservationIgnored private let complicationStore: StepComplicationStore?
     @ObservationIgnored private var isActive = false
     @ObservationIgnored private var authorizationGeneration = 0
 
-    public init(service: any LiveVitalsProviding, workoutViewModel: WorkoutViewModel? = nil) {
+    public init(service: any LiveVitalsProviding, workoutViewModel: WorkoutViewModel? = nil, complicationStore: StepComplicationStore? = nil) {
         self.service = service
         self.workoutViewModel = workoutViewModel
+        self.complicationStore = complicationStore
         unavailableReason = service.liveVitalsUnavailableReason
         service.onLiveVitals = { [weak self] snapshot in
             self?.snapshot = snapshot
+            if let steps = snapshot.stepsToday, let measuredAt = snapshot.updatedAt {
+                self?.complicationStore?.save(steps: steps, measuredAt: measuredAt)
+            }
         }
         service.onLiveVitalsError = { [weak self] message in
             self?.errorMessage = message
@@ -112,6 +117,7 @@ public final class LiveVitalsViewModel {
         service.stopLiveVitalsUpdates()
         isHealthEnabled = false
         snapshot = .empty
+        complicationStore?.clear()
         errorMessage = nil
         phase = .idle
     }

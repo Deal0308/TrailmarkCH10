@@ -18,13 +18,14 @@ struct TrailMarkWatchCh10_Watch_AppApp: App {
     init() {
         // Wrist Home and Live Vitals share one package-owned HealthKit manager.
         let healthService = ActivityHealthService(scope: .stepsOnly, requestsAuthorizationOnRead: false)
+        let complicationStore = StepComplicationStore()
         let pocketSync = PocketSyncService()
         let workout = WorkoutViewModel(pocketSync: pocketSync)
         pocketSyncService = pocketSync
         _workoutViewModel = State(initialValue: workout)
         _memoViewModel = State(initialValue: WatchMemoViewModel(pocketSync: pocketSync))
-        _homeViewModel = State(initialValue: TodayViewModel(service: healthService))
-        _liveVitalsViewModel = State(initialValue: LiveVitalsViewModel(service: healthService, workoutViewModel: workout))
+        _homeViewModel = State(initialValue: TodayViewModel(service: healthService, complicationStore: complicationStore))
+        _liveVitalsViewModel = State(initialValue: LiveVitalsViewModel(service: healthService, workoutViewModel: workout, complicationStore: complicationStore))
         pocketSync.activate()
     }
 

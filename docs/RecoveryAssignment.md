@@ -82,7 +82,7 @@ Finally, 6 p.m.–noon is a documented assignment policy, not a personalized sle
 
 | Location | Responsibility |
 | --- | --- |
-| `TrailMarkCH10Core/Sources/TrailMarkCH10Core/Services/Health/HealthKitRecoveryStore.swift` | HealthKit permissions, sleep/energy queries, workout saving, and save-failure cleanup. |
+| `TrailMarkCH10Core/Sources/TrailMarkCH10Core/Health/HealthKitRecoveryStore.swift` | HealthKit permissions, sleep/energy queries, workout saving, and save-failure cleanup. |
 | `TrailMarkCH10Core/Sources/TrailMarkCH10Core/ViewModels/RecoveryViewModel.swift` | Package-owned loading/error/save states, injectable provider boundary, and sample activity/receipt models. |
 | `TrailMarkCH10Core/Sources/TrailMarkCH10Core/Models/RecoverySummary.swift` | Recovery models and local calendar windows. |
 | `TrailMarkCH10Core/Sources/TrailMarkCH10Core/Support/RecoveryCalculations.swift` | Clipping and merging asleep intervals to calculate elapsed duration. |

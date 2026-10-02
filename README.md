@@ -2,13 +2,13 @@
 
 Trailmark is one continuous iPhone and Apple Watch project. The iPhone app has **Today**, **Field Journal**, **Recovery**, **Workout**, and **Journeys** tabs. The existing watch target has four pages: **Wrist Home**, **Voice Memos**, **Live Vitals**, and **Motion**, with the walking workout reachable from Home and Vitals. Health access is optional; opening the watch app never waits for a Health connection. **Pocket Sync** sends completed watch activities and voice-memo files into the iPhone's existing Journey and Journal stores.
 
-The current assignment is **[Make it last](docs/MakeItLastAssignment.md)**: reduce watch Motion sensor work and UI update frequency, then compare before/after Instruments traces on a physical watch. The report records the code changes and tradeoffs; device measurements and screenshots remain pending while no physical watch is connected. **[Go for a walk](docs/WatchWorkoutAssignment.md)** and **[Pocket Sync](docs/PocketSyncAssignment.md)** remain part of this same app. The [Course 2 final report](docs/WatchFinalReport.md) covers the four original watch features, and the [Course 1 final report](docs/FinalReport.md) covers the iPhone features. See also [Recovery reflection](docs/RecoveryAssignment.md), [Wrist Home](docs/WatchHomeAssignment.md), [Wrist Memo](docs/WatchMemoAssignment.md), and [Live Vitals](docs/WatchVitalsAssignment.md).
+The current assignment is the **[program capstone](docs/ProgramCapstoneReport.md)**: present Pocket Sync, a live watch workout, measured motion optimizations, and a steps complication together. **[Make it last](docs/MakeItLastAssignment.md)** records the performance changes and tradeoffs; physical-watch Instruments measurements and screenshots remain pending. **[Go for a walk](docs/WatchWorkoutAssignment.md)** and **[Pocket Sync](docs/PocketSyncAssignment.md)** remain part of this same app. The [Course 2 final report](docs/WatchFinalReport.md) covers the four original watch features, and the [Course 1 final report](docs/FinalReport.md) covers the iPhone features. See also [Recovery reflection](docs/RecoveryAssignment.md), [Wrist Home](docs/WatchHomeAssignment.md), [Wrist Memo](docs/WatchMemoAssignment.md), and [Live Vitals](docs/WatchVitalsAssignment.md).
 
 ## Current delivery status
 
-All watch features, Pocket Sync, Go for a walk, and Make it last remain in the same source project and existing watch target. **Generic iOS and watchOS device builds passed on September 29, 2026, with the motion optimizations included.** These were unsigned compilation checks; no tests, app launches, or simulator runs were performed for this update. The earlier Apple Watch Series 11 (46mm), watchOS 26.5 simulator check confirmed the four watch pages were reachable without Health authorization before the visual redesign and sync assignment. Cross-device transfer, microphone playback, physical-watch sensor/background evidence, a real walk shown in Apple Health, Instruments screenshots/measurements, submission screenshots, and demo recordings remain outstanding.
+All watch features, Pocket Sync, Go for a walk, Make it last, and the new WidgetKit complication remain in the same source project. **The iPhone app, watch app, and embedded complication passed unsigned generic iOS/watchOS builds on October 2, 2026.** A physical-watch face/Smart Stack demonstration, App Group provisioning, cross-device transfer, microphone playback, physical-watch sensor/background evidence, a real walk shown in Apple Health, Instruments screenshots/measurements, submission screenshots, and demo recordings remain outstanding. No tests, app launches, or simulator runs were performed for this update.
 
-See [Assignment and reference-app alignment](docs/AssignmentAlignment.md) for the supplied ZIP comparison, criterion-by-criterion evidence, and remaining submission work. The reference informed structure and features; the current outdoor editorial design is original. Audio detail retains waveform, scrubbing, elapsed/remaining time, and play/pause through separate services and a view model.
+See [Professor project alignment](docs/ProfessorProjectAlignment.md) for the current GitHub comparison and [Assignment and reference-app alignment](docs/AssignmentAlignment.md) for the earlier supplied ZIP comparison, criterion-by-criterion evidence, and remaining submission work. The references informed structure and features; the current outdoor editorial design is original. Audio detail retains waveform, scrubbing, elapsed/remaining time, and play/pause through separate services and a view model.
 
 ## Visual direction
 
@@ -48,22 +48,23 @@ TrailmarkCH10/
     Journeys/                     # journey list and unified detail
 TrailMarkCH10Core/Sources/TrailMarkCH10Core/
   Models/                         # Codable value types, IDs, coordinates, summaries
-  Services/
-    Health/                       # permissions, HealthKit reads and workout writes
-    Location/                     # CLLocationManager, GPS filtering and route gaps
-    Media/                        # recording, playback, thumbnails, selected-video staging
-    Motion/                       # Core Motion sampling, rolling RMS, movement heuristic
-    Connectivity/                 # WCSession activation, queued activity/summary/file transfer
-    Permissions/                  # system Settings navigation
-    Storage/                      # relative media paths and atomic JSON stores
+  Health/                         # permissions, HealthKit reads and sample-workout writes
+  Media/                          # recording, playback, thumbnails, relative-file memo store
+  Location/                       # CLLocationManager, GPS filtering and route gaps
+  Motion/                         # Core Motion sampling, rolling RMS, movement heuristic
+  Connectivity/                   # WCSession activation, queued activity/summary/file transfer
+  Complications/                  # App Group steps snapshot and WidgetKit reload policy
+  Workout/                        # live HealthKit workout session, builder and mirroring
+  Persistence/                    # atomic journey JSON and Pocket Sync archive
   ViewModels/                     # observable screen state and user-action orchestration
   Presentation/                   # iOS camera, player, map and picker rendering adapters
     Design/TrailmarkTheme.swift    # visual tokens/components reused by phone and watch
-  Support/                        # calendar windows and sleep interval calculations
+  Support/                        # date/sleep calculations and system Settings navigation
 TrailMarkWatchCh10 Watch App/
   App/                            # one watch composition root for all watch assignments
   Views/                          # Home, Workout, Voice Memos, Live Vitals, Motion
     Components/WatchDesign.swift   # wrist-only layout/control presentation
+TrailmarkStepsWidget/               # WidgetKit steps complication views and timeline
 ```
 
 **View → ViewModel → Service → Model/store.** Services own platform APIs and persistence. View models coordinate services and expose observable state. Views render that state and forward actions. The app's composition root creates shared view-model instances so a memo added from Journey Detail immediately appears in Field Journal, and deletion removes it from both views.
@@ -81,6 +82,7 @@ No app view imports HealthKit, CoreMotion, CoreLocation, AVFoundation, AVKit, Ph
 - **Watch Live Vitals:** choose **Enable Health** on a physical watch to observe today's cumulative steps/active energy and the latest readable heart rate. During an explicitly started Trailmark workout, the screen also consumes the existing builder's heart-rate stream, using the actual measurement time and identifying the source. Daily totals stay separate from workout-only energy. Opening this page never starts a workout or permission request automatically.
 - **Watch Motion:** swipe to Motion and tap **Start** on a physical watch. The display shows Still/Moving and gravity-free movement strength in g, using a one-second rolling RMS and two thresholds to reduce flicker. Sampling now requests 5 Hz; the display updates at most once per second. Tap **Stop**, leave the page, or make the app inactive to stop sampling. No Health connection is needed.
 - **Pocket Sync:** finishing a watch workout queues an activity record for the iPhone Journey list. Saving a watch voice memo queues its `.m4a` file and metadata. Its journey association is captured at recording start when a workout is active or was completed within the last 12 hours; other memos stay in Journal. The watch memo detail can retry transfers. The latest replaceable summary uses application context, each completed activity uses user info, and audio uses file transfer. See the [assignment reflection](docs/PocketSyncAssignment.md).
+- **Watch complication:** the embedded **Trailmark Steps** WidgetKit extension offers circular face and rectangular face/Smart Stack layouts. Watch Home or Vitals publishes a readable step count to the watch App Group; the extension reads that snapshot without requesting Health access. It shows a dash when there is no current-day reading. Signed device use requires the app and extension to share the registered `group.com.example.TrailmarkCH10` App Group.
 
 ## Persistence and permissions
 
@@ -105,7 +107,7 @@ For Course 2, supply the physical-watch screenshots and demo listed in [TrailMar
 
 ## Watch assignment: Wrist home
 
-The existing watch target shows **today’s steps** and one **Start Workout** action. The workout screen uses the package’s `WorkoutViewModel`, `WorkoutMetrics`, and `WorkoutSessionService`; it displays live and average heart rate, energy, time, pause/resume, and End. There are no copied models or managers. HealthKit calls and phone mirroring remain in `Services/Health/`, while both app views render the same framework-independent workout model.
+The existing watch target shows **today’s steps** and one **Start Workout** action. The workout screen uses the package’s `WorkoutViewModel`, `WorkoutMetrics`, and `WorkoutSessionService`; it displays live and average heart rate, energy, time, pause/resume, and End. There are no copied models or managers. Live workout HealthKit calls and phone mirroring remain in `Workout/`, while both app views render the same framework-independent workout model.
 
 The [Wrist home assignment and reflection](docs/WatchHomeAssignment.md) documents the MVVM structure, state handling, rubric mapping, and design choice against Apple’s **Designing for watchOS** guideline. Voice Memos, Live Vitals, and Motion are separate vertical pages, so the home still presents one headline and one quick action. Before Health is enabled it shows a dash with an optional-access message; navigation remains available.
 

@@ -32,7 +32,7 @@ The direction of dependency is **View → ViewModel → Service → Model**. A s
 | Layer | Location and responsibility |
 | --- | --- |
 | Model | Package `Models/`: activity totals, memo metadata, workout metrics, vitals snapshots, and motion state/results. Values can cross a platform boundary without bringing a sensor or player with them. |
-| Service | Package `Services/`: Health authorization/queries/workouts, microphone/audio playback, local persistence, and Core Motion session ownership. |
+| Service | Package `Health/`, `Media/`, `Location/`, `Motion/`, `Connectivity/`, and `Workout/`: platform authorization, capture, playback, sensing, sync, and live workout ownership. `Persistence/` holds journey and transfer archives. |
 | ViewModel | Package `ViewModels/`: loading/unavailable/error states; start, stop, record, save, and playback commands; lifecycle policy. |
 | View | Watch target `Views/`: Home, Memo list/detail, Vitals, Motion, and Workout presentation. Views import SwiftUI and the shared package. |
 | Shared presentation | Package `Presentation/Design/TrailmarkTheme.swift`: phone/watch colors and visual components. Watch `Views/Components/WatchDesign.swift` adapts them to a black wrist canvas and compact controls; neither file owns sensor or persistence logic. |
